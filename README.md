@@ -8,13 +8,13 @@ hackathon HackNation, zadanie „Attack Surface Intelligence” (AGH).
 deterministyczny, testowalny kod. Lokalny model językowy służy wyłącznie do tłumaczenia
 wyników na ludzki język.
 
-> **Stan:** Etapy 0–3b zrobione, Etap 4 (Keycloak, MFA, RBAC, dwie konsole) w przeglądzie.
-> Ścieżka krytyczna działa od początku do końca, bez internetu: import
-> inwentarza, skan usług, feedy ze snapshotów, dopasowanie podatności do zasobów, ocena ryzyka
-> z rozbiciem, kolejka weryfikacji, powiadomienia. Do tego wyjaśnienia zagrożeń na trzech
-> poziomach z lokalnego modelu, sprawdzane przez kod. Architektura i plan Etapów 4–9:
-> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); co poza linią cięcia:
-> [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Zmiana kierunku (21.11.2026).** Projekt prowadzimy pod oficjalny brief CBI AGH
+> ([docs/BRIEF.md](docs/BRIEF.md)): skaner discovery dużej infrastruktury z fingerprintingiem
+> HTTP, sygnaturami, porównaniem przebiegów, czterema rolami, szyfrowaniem w spoczynku i
+> DefectDojo. Stan wymagań: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md); plan etapów P0–P12:
+> [docs/ROADMAP.md](docs/ROADMAP.md); co usuwamy i co zostaje:
+> [docs/ARCHITECTURE.md, sekcja 0](docs/ARCHITECTURE.md#0-zmiana-kierunku-brief-agh). Opis
+> poniżej dotyczy stanu sprzed zmiany i zostanie przepisany w kolejnych etapach.
 
 ## Uruchomienie
 

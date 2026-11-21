@@ -1,17 +1,17 @@
 # Sentinel ASI: architektura
 
-Status: **wersja 2, do akceptacji (Etap 3b)**. Wersja 1 zaakceptowana 2026-11-16 (Etap 0).
-Data: 2026-11-20. Kontekst: HackNation, zadanie „Attack Surface Intelligence” (AGH).
+Status: **wersja 3 (zmiana kierunku), do akceptacji (Etap P0)**. Data: 2026-11-21.
+Kontekst: HackNation, zadanie „Attack Surface Intelligence” Centrum Bezpieczeństwa Informacji
+AGH.
 
-Ta wersja dostosowuje architekturę do pełnej specyfikacji z 2026-11-20 (role i dwie konsole,
-agent AI z serwerem MCP, poświadczenia just-in-time, compliance prawny, testy bezpieczeństwa
-systemów AI, raporty dla menedżera, prywatność danych pracowników). Co się zmieniło względem
-wersji 1 i jaki ma to wpływ na istniejący kod, opisuje
-[sekcja 21](#21-zmiany-względem-poprzedniej-wersji). Sprzeczności w specyfikacji i rzeczy,
-których nie da się zrobić w budżecie sprzętowym, są w [sekcji 20](#20-sprzeczności-ograniczenia-i-pytania).
+Od 21.11.2026 nadrzędnym dokumentem jest oficjalny brief ([BRIEF.md](BRIEF.md)). **Sekcja 0**
+opisuje zmianę kierunku i docelową architekturę. Sekcje 1–26 opisują stan sprzed zmiany: to,
+co z nich zostaje, jest wymienione w sekcji 0.3, a reszta jest nieaktualna i zniknie z tego
+pliku razem z kodem w Etapie P1. Macierz zgodności z briefem: [REQUIREMENTS.md](REQUIREMENTS.md).
 
 ## Spis treści
 
+0. [Zmiana kierunku (brief AGH)](#0-zmiana-kierunku-brief-agh)
 1. [Założenia i zakres](#1-założenia-i-zakres)
 2. [Widok komponentów](#2-widok-komponentów)
 3. [Izolacja sieci, scope_guard i poziomy inwazyjności](#3-izolacja-sieci-scope_guard-i-poziomy-inwazyjności)
@@ -38,6 +38,176 @@ których nie da się zrobić w budżecie sprzętowym, są w [sekcji 20](#20-sprz
 24. [Moduł 20: widok z zewnątrz (Artemis, CERT Polska) i korelacja outside-in / inside-out](#24-moduł-20-widok-z-zewnątrz-artemis-cert-polska-i-korelacja-outside-in--inside-out)
 25. [Moduł 21: raport „Aktualny obraz” i asystent menedżera (Sentek)](#25-moduł-21-raport-aktualny-obraz-i-asystent-menedżera-sentek)
 26. [Moduł 22: film demo 60 s z Sentkiem](#26-moduł-22-film-demo-60-s-z-sentkiem)
+
+---
+
+## 0. Zmiana kierunku (brief AGH)
+
+### 0.1 Dlaczego
+
+Dotychczasowa specyfikacja była szeroka (konsola menedżera, compliance prawny, widok z
+zewnątrz, film demo). Oficjalny brief jest węższy i techniczny: **skaner discovery dużej
+infrastruktury (> 10 000 adresów IP)** dla zespołu bezpieczeństwa, z fingerprintingiem
+HTTP/HTTPS, wykrywaniem technologii, własnymi sygnaturami, porównaniem przebiegów, obsługą
+niestabilnych hostów, czterema rolami, szyfrowaniem w spoczynku i integracją z DefectDojo.
+Funkcje spoza briefu nie dają punktów, a rozwiązanie ma być wdrożone w CBI AGH, więc
+projektujemy pod realne użycie przez zespół bezpieczeństwa.
+
+Zasada nadrzędna zostaje bez zmian: **decyzje podejmuje deterministyczny kod**; model językowy
+tylko proponuje plan (agent) albo mówi do człowieka (Sentek, wyjaśnienia), a człowiek
+zatwierdza. Każde aktywne działanie sieciowe przechodzi przez `scope_guard`.
+
+### 0.2 Co usuwamy (kod, migracje, testy, CI, dokumentacja, issues)
+
+| Obszar | Co dokładnie | Co przenosimy do konsoli zespołu IT |
+|---|---|---|
+| Konsola menedżera (`frontend/dashboard`) i rola `manager` | strona główna menedżera, skrzynka, „Aktualny obraz”, prośby o skan, samouczek menedżera, raporty „W skrócie” dla zarządu | komponenty tabel, karta hosta (historia, usługi), wykresy, mapa jako widok sieci i segmentów |
+| Dane pracowników | `Person`, `AssetAssignment`, atrapy AD i MDM, pseudonimizacja, retencja, `PRIVACY.md` | nic (zostaje ogólna redakcja sekretów) |
+| Organizacja z działami | `OrgUnit`, `Location`, metryka pokrycia z działami | `NetworkSegment` jako grupowanie sieci, jeśli się przyda w P3 |
+| Widok z zewnątrz (moduł 20) | Artemis, moje.cert.pl, korelacja outside-in (§24, #26) | nic |
+| Compliance prawny | KSC, RODO, KRI, ISO, NIST, AI Act, kwestionariusz, oś terminów, rejestr ryzyk governance (§11, `ComplianceRule`, `ComplianceResult`) | nic |
+| Film demo (moduł 22) | `demo/script.yaml`, tryb `?demo=record`, Piper, ffmpeg, `DemoStage` | postać Sentka (dla asystenta) |
+| Discovery systemów AI (moduł 12B) | ogólne szukanie systemów AI w infrastrukturze | zastępuje go test wskazanego endpointu (D10, P11) |
+
+### 0.3 Co zostawiamy i wykorzystujemy
+
+| Element | Rola w nowym kierunku | Kryterium |
+|---|---|---|
+| `scope_guard`, poziomy L1–L3, limity, audit log z łańcuchem skrótów (§3) | brama dla każdego pakietu skanera, dowód ostrożności | K4 |
+| Keycloak, MFA, RBAC deny-by-default, test rola × endpoint (§4) | cztery role z briefu, edytor ról | K6 |
+| OpenBao (§6) | klucze do szyfrowania pól (Transit) i poświadczenia JIT agenta | K6 |
+| Serwer MCP, agent z planem i zatwierdzeniem, kill switch, test bezpieczeństwa agenta (§5, §23) | agent jako współpracownik zespołu: proponuje, wykonuje po zgodzie, raportuje (§0.10); test endpointu (D10) | K4 |
+| Adapter nmap, parser nmap XML, inwentarz z historią (§8) | rdzeń discovery do przebudowy na paczki i równoległość | K1 |
+| Import CSV, matching CVE, scoring, feedy offline (§9, §10) | wzbogacenie obserwacji (np. „stary komponent”), nie rdzeń | K5 |
+| Konsola operacyjna (`frontend/admin`) | **jedyna konsola**, dla zespołu IT/bezpieczeństwa | K4 |
+| AI Explainer, promptfoo, eval | wyjaśnienia obserwacji, testy AI w CI | K2 |
+
+**Zamrażamy** (działa, nie rozwijamy): dopasowanie CVE i feedy, raporty dwuwarstwowe (posłużą
+za szkielet raportów ze skanów w P10), powiadomienia, migracja pipeline'u na MCP (#27).
+
+### 0.4 Co budujemy
+
+Moduły D1–D10 (opis w poleceniu P0, plan w [ROADMAP.md](ROADMAP.md)):
+
+| Moduł | Treść | Etap |
+|---|---|---|
+| D1 | Wejście danych: cele z formularza i plików CSV/JSON jedną ścieżką, import wyników, eksport, **warstwa nadpisań użytkownika** | P2 |
+| D2 | Silnik discovery na skalę: paczki, równoległość, limity tempa, czas i ETA, zapis przyrostowy, test > 10 000 IP | P3 |
+| D3 | Harmonogram z oknami czasowymi, zatrzymanie i wznowienie | P8 |
+| D4 | Fingerprinting HTTP/HTTPS, technologie z pewnością, staging i panele, ciekawe nagłówki i ciasteczka | P4 |
+| D5 | Własne sygnatury z walidatorem bezpieczeństwa | P7 |
+| D6 | Zmiany w czasie, stany hostów, niestabilne hosty, pora dnia, ciekawość | P5 |
+| D7 | DefectDojo (obowiązkowe) | P6 |
+| D8 | Szyfrowanie pól wrażliwych | P9 |
+| D9 | Dashboard zespołu IT | P10 |
+| D10 | Testy AI w konsoli: test agenta i test wskazanego endpointu | P11 |
+
+### 0.5 Docelowy przepływ
+
+```mermaid
+flowchart LR
+  IN[Cele: formularz, CSV, JSON] --> V[Walidacja, deduplikacja, podgląd]
+  V --> SG{scope_guard}
+  SCH[Harmonogram i okna] --> PL[Planer paczek]
+  SG --> PL
+  PL -->|paczki o rozmiarze z mierzonej szybkości| W1[Worker discovery 1]
+  PL --> W2[Worker discovery N]
+  W1 --> D[nmap -sn / naabu: aktywne hosty]
+  D --> S[nmap -sV: usługi i banery]
+  S --> H[httpx + moduł własny: HTTP/HTTPS, TLS, favicon]
+  H --> T[Technologie: fingerprinty + sygnatury, pewność 0–100]
+  T --> O[(Obserwacje per przebieg)]
+  O --> DF[Różnice i stany: nowy, zmieniony, niestabilny, nieaktywny]
+  OV[(Nadpisania użytkownika)] --> M[Widok scalony]
+  O --> M
+  DF --> UI[Dashboard zespołu IT]
+  M --> UI
+  M --> EX[Eksport JSON/CSV]
+  M --> DD[DefectDojo API v2: Info + evidence]
+```
+
+- **Obserwacje vs nadpisania.** Każdy przebieg zapisuje obserwacje (host, usługa, odpowiedź
+  HTTP, certyfikat, technologia z dowodami) jako niezmienne rekordy przypisane do przebiegu.
+  Zmiany użytkownika (opis, tagi, priorytet, właściciel, status, poprawiona technologia) idą do
+  osobnej tabeli nadpisań z autorem i czasem. Widok scalony = obserwacja + nadpisanie; skan
+  nigdy nie dotyka nadpisań (wymaganie R14).
+- **Paczki.** Planer dzieli cele na paczki; rozmiar zależy od zmierzonej szybkości poprzednich
+  paczek w danej podsieci i od limitów tempa. Każda paczka ma czas startu i końca, wynik
+  zapisany od razu, status w punkcie kontrolnym (wznowienie po końcu okna, R2, S2).
+- **Pewność.** Technologia ma wynik 0–100 z sumy wag niezależnych dowodów (nagłówek, ciasteczko,
+  favicon, HTML, ścieżka, banner); lista dowodów zapisana przy obserwacji.
+- **Stany hosta.** Konfigurowalne reguły (N przebiegów bez odpowiedzi, czas T, przeplatanie w
+  ostatnich M przebiegach), powtórzenia pomiaru przed zmianą stanu.
+- **Szyfrowanie.** Pola wrażliwe (wartości ciasteczek, nagłówki z tokenami, fragmenty treści,
+  notatki, tokeny integracji) szyfrowane kluczem z OpenBao Transit; obok HMAC, gdy trzeba
+  wyszukiwać.
+
+### 0.6 Role (brief pkt 12–13)
+
+| Rola w kodzie | Nazwa w UI | Zakres |
+|---|---|---|
+| `administrator` | Administracja | użytkownicy i role (edytor ról), konfiguracja, zakresy, polityki, integracje, harmonogramy, agent, kill switch, wszystkie operacje na danych |
+| `editor` | Dodawanie, usuwanie, modyfikacja | cele, skany, wyniki, sygnatury, tagi: tworzenie, usuwanie, edycja; uruchamianie skanów, eksport do DefectDojo, zatwierdzanie planów agenta i akcji L2+ |
+| `modifier` | Modyfikacja i odczyt | odczyt wszystkiego + edycja istniejących danych (wyniki, adnotacje, tagi, priorytety); bez dodawania i usuwania |
+| `viewer` | Odczyt | odczyt, dashboard, raporty, eksport JSON/CSV |
+| `agent` | (tożsamość techniczna) | uprawnienia nadane przez administratora, bez dostępu do UI |
+
+Szczegółowa macierz rola × endpoint × akcja powstanie w `docs/ROLES.md` (P1) i będzie testowana
+automatycznie. Zmiana względem dotychczasowej zasady: akcje L2 i L3 zatwierdza `administrator`
+albo `editor` (decyzja z 21.11.2026), zawsze człowiek i zawsze z wpisem w audycie.
+
+### 0.7 Bezpieczeństwo skanera
+
+- `scope_guard` dopuszcza tylko cele wprowadzone przez uprawnionych użytkowników i porty z listy
+  organizatora; denylista przed allowlistą.
+- Domyślnie ostrożnie: timing nmap nie agresywniejszy niż T3, limity pakietów na sekundę,
+  równoległości i per podsieć; bez skryptów NSE z kategorii intrusive, exploit, dos, brute.
+- Żadnych prób logowania, słowników ani payloadów; sygnatury i sprawdzanie paneli tylko GET i
+  HEAD.
+- Kill switch zatrzymuje wszystkie skany, nie tylko agenta. Identyfikowalny User-Agent z
+  kontaktem. Zasady w `docs/SAFE_SCANNING.md` (P12).
+
+### 0.8 Język i wydajność
+
+Brief sugeruje Go, Rust albo C++. Zostajemy przy obecnym stosie: orkiestracja w Pythonie,
+ciężka praca w narzędziach natywnych (nmap w C, httpx i naabu w Go). Uzasadnienie pomiarami
+(czas discovery dla > 10 000 IP, CPU i RAM orkiestratora vs narzędzi) w `docs/PERFORMANCE.md`
+(P3). Jeśli pomiar pokaże wąskie gardło w Pythonie (np. przetwarzanie wyników), ten fragment
+przenosimy do osobnego modułu w Go.
+
+### 0.9 Środowisko testowe
+
+Do czasu otrzymania zasobów od organizatora rozbudowujemy demo-lab o hosty imitujące
+zróżnicowaną infrastrukturę: CMS-y, panele administracyjne, staging, urządzenia IoT, nietypowe
+banery i ciasteczka, hosty włączające się i wyłączające cyklicznie, usługi zmieniające się
+między przebiegami, oraz pustą przestrzeń adresową > 10 000 IP do testu skali. Po otrzymaniu
+zasobów: profil Compose organizatora, dostosowanie parserów, test precyzji i czułości względem
+wyników referencyjnych (`docs/VALIDATION.md`).
+
+### 0.10 Współpraca z agentem
+
+Zakres pracy wyznacza brief, a sposób pracy zostaje ten, który mieliśmy od początku: zespół
+bezpieczeństwa pracuje razem z agentem. Agent przygotowuje propozycje i wykonuje je dopiero po
+zatwierdzeniu, a człowiek decyduje. Zasada „plan, zatwierdzenie, wykonanie” z §5 obowiązuje w
+każdym module. Każde narzędzie agenta to narzędzie serwera MCP z polityką, `scope_guard` i wpisem
+w audycie.
+
+| Moduł | Co robi agent | Co robi człowiek (`administrator` albo `editor`) |
+|---|---|---|
+| D1 cele | z opisu („sieć serwerowa B, bez drukarek”) proponuje listę celów; kod waliduje i deduplikuje | zatwierdza listę, która trafia do zakresu |
+| D2 discovery | proponuje plan przebiegu: zakres, paczki, techniki, limity tempa (z mierzonej szybkości); wykonuje go przez `mcp-scanner` | zatwierdza plan; kill switch zatrzymuje wszystko |
+| D3 harmonogram | proponuje okno i częstotliwość na podstawie profilu dostępności | zatwierdza harmonogram |
+| D4 fingerprinting | wyjaśnia technologię i dowody, wskazuje panele i staging do weryfikacji (tylko GET/HEAD) | potwierdza albo poprawia (nadpisanie) |
+| D5 sygnatury | proponuje sygnaturę z obserwacji; walidator bezpieczeństwa ją sprawdza | testuje na hoście i zatwierdza |
+| D6 zmiany | streszcza różnice między przebiegami, wskazuje niestabilne hosty i proponuje powtórny pomiar | zatwierdza powtórzenie, ustala priorytet |
+| D7 DefectDojo | przygotowuje paczkę eksportu (findingi „Info” z dowodami) | zatwierdza eksport ręczny; automatyczny ustawia administrator |
+| D9 dashboard | pisze raport z przebiegu (fakty z bazy) | czyta, poprawia, publikuje |
+| D10 testy AI | test wskazanego endpointu na poziomie L3 | zgoda na L3 |
+
+Propozycje agenta do danych (tagi, priorytet, poprawiona technologia) trafiają do warstwy
+nadpisań dopiero po akceptacji człowieka, z autorem „agent, zatwierdził X”. Sentek w konsoli
+zespołu IT odpowiada z bazy i przekazuje prośby o skan lub zmianę jako zadania agenta do
+zatwierdzenia. Agent nigdy nie zatwierdza własnych propozycji i nie widzi poświadczeń.
 
 ---
 
