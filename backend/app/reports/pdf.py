@@ -1,9 +1,10 @@
 """PDF raportu: ta sama struktura co w konsoli (Jinja2 + WeasyPrint, ARCHITECTURE §12.3).
 
 Do szablonu trafia wyłącznie widok raportu już po redakcji dla odbiorcy (ta sama funkcja co
-w odpowiedziach API), więc PDF menedżera nie zawiera adresów IP ani danych osobowych, których
-menedżer nie widzi w konsoli. WeasyPrint nie pobiera niczego z sieci: `url_fetcher` odmawia
-każdego adresu, a szablon nie ma zasobów zewnętrznych (czcionki systemowe, style w pliku).
+w odpowiedziach API), więc PDF „W skrócie” nie zawiera adresów IP ani danych technicznych,
+których odbiorca bez `secrets:redacted:view` nie widzi w konsoli. WeasyPrint nie pobiera niczego
+z sieci: `url_fetcher` odmawia każdego adresu, a szablon nie ma zasobów zewnętrznych (czcionki
+systemowe, style w pliku).
 """
 
 from __future__ import annotations
@@ -94,6 +95,6 @@ def report_view(report: Report, *, technical: bool, personal: bool) -> dict[str,
         "facts": shown["facts"],
         "technical": shown["technical"],
     }
-    if not technical and not personal:
+    if not technical:
         return view
-    return dict(redact(view, technical=technical, personal=personal))
+    return dict(redact(view, technical=True))

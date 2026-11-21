@@ -50,7 +50,7 @@ class GlossaryTerm:
 @dataclass(frozen=True)
 class ReportsConfig:
     light: tuple[LightRule, ...]
-    recipients: tuple[str, ...] = ("manager",)
+    recipients: tuple[str, ...] = ("administrator",)
     max_findings_in_summary: int = 5
     fix_within_days: dict[str, int] = field(default_factory=dict)
     plain_language: PlainLanguage = field(default_factory=PlainLanguage)
@@ -61,7 +61,7 @@ class ReportsConfig:
 
     @property
     def abbreviations(self) -> frozenset[str]:
-        """Skróty dozwolone w tekście dla menedżera (klucze słownika pisane wielkimi literami)."""
+        """Skróty dozwolone w warstwie „W skrócie” (klucze słownika pisane wielkimi literami)."""
         return frozenset(term.key for term in self.glossary if term.key.isupper())
 
     @classmethod
@@ -100,7 +100,7 @@ class ReportsConfig:
         )
         return cls(
             light=tuple(rules),
-            recipients=tuple(str(r) for r in data.get("recipients") or ("manager",)),
+            recipients=tuple(str(r) for r in data.get("recipients") or ("administrator",)),
             max_findings_in_summary=int(data.get("max_findings_in_summary", 5)),
             fix_within_days=days,
             plain_language=PlainLanguage(**(data.get("plain_language") or {})),

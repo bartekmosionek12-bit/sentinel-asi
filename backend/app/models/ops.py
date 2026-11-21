@@ -21,8 +21,6 @@ SCAN_ACTION_STATUSES = (
     "failed",
 )
 AUDIENCES = ("technical", "operational", "executive")
-SCAN_REQUEST_SCOPES = ("organization", "unit", "device")
-SCAN_REQUEST_STATUSES = ("pending", "approved", "rejected", "done", "failed")
 
 
 class ScanRun(Base):
@@ -83,37 +81,6 @@ class FeedSync(Base):
     items_updated: Mapped[int] = mapped_column(default=0)
     error: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(default=utcnow)
-    finished_at: Mapped[datetime | None]
-
-
-class ScanRequest(Base):
-    """Prośba menedżera o nowe skanowanie (moduł 21, §25.1). Skan uruchamia dopiero admin.
-
-    Zakres prośby (dział, urządzenie) mówi, czego dotyczy pytanie; zatwierdzony skan i tak
-    przechodzi zwykłą ścieżką plannera i `scope_guard` w autoryzowanym zakresie.
-    """
-
-    __tablename__ = "scan_request"
-    __table_args__ = (
-        CheckConstraint(_in("scope_kind", SCAN_REQUEST_SCOPES), name="scope_kind_valid"),
-        CheckConstraint(_in("status", SCAN_REQUEST_STATUSES), name="status_valid"),
-    )
-
-    id: Mapped[UuidPk]
-    requested_by: Mapped[str] = mapped_column(String(255), index=True)
-    scope_kind: Mapped[str] = mapped_column(String(16))
-    # Identyfikator działu albo urządzenia; nazwa zapisana w chwili prośby.
-    scope_ref: Mapped[uuid.UUID | None]
-    scope_label: Mapped[str] = mapped_column(String(255))
-    reason: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
-    decided_by: Mapped[str | None] = mapped_column(String(255))
-    decision_reason: Mapped[str | None] = mapped_column(Text)
-    decided_at: Mapped[datetime | None]
-    scan_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("scan_run.id", ondelete="SET NULL")
-    )
-    created_at: Mapped[CreatedAt]
     finished_at: Mapped[datetime | None]
 
 

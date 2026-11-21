@@ -60,7 +60,9 @@ class MemoryAudit:
 TEST_ISSUER = "http://keycloak.test/auth/realms/sentinel"
 TEST_AUDIENCE = "sentinel-api"
 ADMIN_CLIENT = "sentinel-admin"
-DASHBOARD_CLIENT = "sentinel-dashboard"
+# Klient bez kroku TOTP (np. skrypt z hasłem): token bez `otp` w `amr`.
+DASHBOARD_CLIENT = "sentinel-cli"
+HUMAN_ROLES = frozenset({"administrator", "editor", "modifier", "viewer"})
 TEST_POLICY = TokenPolicy(issuer=TEST_ISSUER, audience=TEST_AUDIENCE)
 
 
@@ -88,11 +90,12 @@ class TokenFactory:
         **extra: Any,
     ) -> dict[str, Any]:
         roles = list(roles)
-        # Jak w realmie: admin loguje się do konsoli operacyjnej hasłem i TOTP (amr pwd+otp),
-        # reszta do dashboardu samym hasłem.
-        client = client or (ADMIN_CLIENT if "admin" in roles else DASHBOARD_CLIENT)
+        # Jak w realmie: ludzie logują się do konsoli zespołu IT hasłem i TOTP (amr pwd+otp);
+        # inne klienty bez drugiego składnika.
+        human = bool(HUMAN_ROLES & set(roles))
+        client = client or (ADMIN_CLIENT if human else DASHBOARD_CLIENT)
         if amr is None:
-            amr = ["pwd", "otp"] if "admin" in roles and client == ADMIN_CLIENT else ["pwd"]
+            amr = ["pwd", "otp"] if human and client == ADMIN_CLIENT else ["pwd"]
         name = username or (roles[0] if roles else "anonim")
         now = int(time.time())
         claims: dict[str, Any] = {
@@ -144,10 +147,8 @@ class RecordingDispatcher:
         self.calls.append((name, args))
         return f"task-{name}"
 
-    def run_scan(self, actor: str, request_id: uuid.UUID | None = None) -> str:
-        if request_id is None:
-            return self._record("run_scan", actor)
-        return self._record("run_scan", actor, request_id)
+    def run_scan(self, actor: str) -> str:
+        return self._record("run_scan", actor)
 
     def approve_action(self, action_id: uuid.UUID, approved_by: str, reason: str) -> str:
         return self._record("approve_action", action_id, approved_by, reason)
@@ -238,6 +239,6 @@ def anon_client(
 
 @pytest.fixture
 def client(anon_client: TestClient, tokens: TokenFactory) -> TestClient:
-    """Klient API zalogowany jako administrator z MFA (konsola operacyjna)."""
-    anon_client.headers.update(tokens.headers(["admin"], username="admin"))
+    """Klient API zalogowany jako administrator z MFA (konsola zespołu IT)."""
+    anon_client.headers.update(tokens.headers(["administrator"], username="admin"))
     return anon_client

@@ -25,7 +25,7 @@ pliku razem z kodem w Etapie P1. Macierz zgodności z briefem: [REQUIREMENTS.md]
 11. [Compliance techniczny i prawny](#11-compliance-techniczny-i-prawny)
 12. [AI Explainer, czat i raporty](#12-ai-explainer-czat-i-raporty)
 13. [AI Security (promptfoo)](#13-ai-security-promptfoo)
-14. [Dwie konsole](#14-dwie-konsole)
+14. [Konsola zespołu IT](#14-konsola-zespołu-it)
 15. [Prywatność danych pracowników](#15-prywatność-danych-pracowników)
 16. [Budżet zasobów (CPU-only, 16 GB)](#16-budżet-zasobów-cpu-only-16-gb)
 17. [Decyzje projektowe z uzasadnieniem](#17-decyzje-projektowe-z-uzasadnieniem)
@@ -36,7 +36,7 @@ pliku razem z kodem w Etapie P1. Macierz zgodności z briefem: [REQUIREMENTS.md]
 22. [Ustalenia](#22-ustalenia)
 23. [Moduł 19: test bezpieczeństwa agenta](#23-moduł-19-test-bezpieczeństwa-agenta)
 24. [Moduł 20: widok z zewnątrz (Artemis, CERT Polska) i korelacja outside-in / inside-out](#24-moduł-20-widok-z-zewnątrz-artemis-cert-polska-i-korelacja-outside-in--inside-out)
-25. [Moduł 21: raport „Aktualny obraz” i asystent menedżera (Sentek)](#25-moduł-21-raport-aktualny-obraz-i-asystent-menedżera-sentek)
+25. [Moduł 21: raport „Aktualny obraz” i asystent menedżera (Sentek)](#25-moduł-21-raport-aktualny-obraz-i-asystent-menedżera-sentek) (historyczne, P1)
 26. [Moduł 22: film demo 60 s z Sentkiem](#26-moduł-22-film-demo-60-s-z-sentkiem)
 
 ---
@@ -249,8 +249,7 @@ Compose; prezentacja bez internetu; brak klucza NVD.
 ```mermaid
 flowchart LR
     subgraph UI["Przeglądarka"]
-        ADM["/admin<br/>konsola operacyjna"]
-        DSH["/dashboard<br/>konsola menedżera"]
+        ADM["/admin<br/>konsola zespołu IT"]
     end
 
     subgraph EDGE["Sieć edge"]
@@ -295,7 +294,6 @@ flowchart LR
     end
 
     ADM --> PROXY
-    DSH --> PROXY
     PROXY --> API
     PROXY --> KC
     API -->|JWKS| KC
@@ -359,8 +357,7 @@ sentinel-asi/
 │   └── workers/
 ├── mcp-scanner/        # NOWE: serwer MCP (oficjalne SDK), polityki, klient OpenBao
 ├── frontend/
-│   ├── admin/          # konsola operacyjna (obecne widoki trafiają tutaj)
-│   ├── dashboard/      # konsola menedżera, tylko odczyt
+│   ├── admin/          # konsola zespołu IT, jedyna od P1 (widoki według uprawnień roli)
 │   └── shared/         # komponenty, klient API, słownik pojęć, motyw
 ├── rules/              # + legal/<akt>/, compliance/, glossary.yaml, roles.yaml, reports.yaml
 ├── ai-tests/           # NOWE: promptfoo (testy własnego AI i fixture'y złośliwych advisory)
@@ -455,16 +452,15 @@ z haseł w `.env` albo wygenerowanych).
 
 | Klient Keycloak | Typ | Kto | Token |
 |---|---|---|---|
-| `sentinel-admin` | publiczny, PKCE | ludzie z rolą `admin` | wymagane MFA (TOTP lub WebAuthn), sesja 30 min bezczynności |
-| `sentinel-dashboard` | publiczny, PKCE | `manager`, `auditor` | sesja 8 h, MFA zalecane |
+| `sentinel-admin` | publiczny, PKCE | ludzie z rolami `administrator`, `editor`, `modifier`, `viewer` | wymagane MFA (TOTP) dla każdej roli, sesja 30 min bezczynności |
 | `sentinel-agent` | poufny, client credentials | agent AI | 5 min, audience `mcp-scanner`, rola `agent` |
 | `sentinel-pipeline` | poufny, client credentials | deterministyczny pipeline | 5 min, audience `mcp-scanner`, rola `system` |
 
-- MFA admina wymuszone przepływem `sentinel-admin-mfa` klienta `sentinel-admin` (hasło, potem
-  warunkowo OTP dla roli `admin`). Backend ustala MFA **wyłącznie z claimu `amr`** (`otp`,
+- MFA wymuszone przepływem `sentinel-admin-mfa` klienta `sentinel-admin` (hasło, potem OTP
+  dla każdego konta; od P1 bez warunku na rolę). Backend ustala MFA **wyłącznie z claimu `amr`** (`otp`,
   `hwk`, `webauthn`), który Keycloak wystawia przez mapper `oidc-amr-mapper`. Wnioskowanie z
-  `azp` odrzuciliśmy: sesja SSO z ciasteczka albo menedżer bez OTP na kliencie admina
-  dostałby wtedy „MFA” bez drugiego składnika. Uprawnienia oznaczone w `rules/roles.yaml`
+  `azp` odrzuciliśmy: sesja SSO z ciasteczka albo token z innego klienta dostałby wtedy
+  „MFA” bez drugiego składnika. Uprawnienia oznaczone w `rules/roles.yaml`
   jako `mfa: true` (m.in. `console:admin`, `scan:approve:l2`, `scan:approve:l3`) bez MFA
   dają 403.
 - Krótkie tokeny dostępu (5 min) i odświeżanie; wylogowanie unieważnia sesję w Keycloak, a
@@ -480,31 +476,35 @@ z haseł w `.env` albo wygenerowanych).
 `rules/roles.yaml` (wersjonowane w Git). Keycloak przechowuje tylko przynależność do ról;
 mapowanie rola → uprawnienia robi backend.
 
-| Uprawnienie | admin | manager | auditor | agent | system |
-|---|:-:|:-:|:-:|:-:|:-:|
-| `inventory:read`, `findings:read`, `risks:read`, `compliance:read`, `reports:read` | ✓ | ✓ | ✓ | | |
-| `reports:export` | ✓ | ✓ | ✓ | | |
-| `personal_data:view` | ✓ | ✓ | | | |
-| `secrets:redacted:view` (dane techniczne bez redakcji, poza sekretami) | ✓ | | | | |
-| `audit:read`, `audit:export` | ✓ | | ✓ | | |
-| `scan:run` (L1), `scan:approve:l2`, `scan:approve:l3` | ✓ | | | | |
-| `agent:task`, `agent:configure`, `agent:kill` | ✓ | | | | |
-| `scope:manage`, `integrations:manage`, `iam:manage`, `llm:external:manage` | ✓ | | | | |
-| `review:decide` (kolejka weryfikacji), `findings:update`, `owners:manage` | ✓ | | | | |
-| `risk:accept` (flaga `MANAGER_RISK_ACCEPT`) | ✓ | opcja | | | |
-| `mcp:tool:<nazwa>` | | | | wg zdolności | L1 + zatwierdzone L2/L3 |
+Od P1 role to cztery role z briefu (pkt 13) i dwie tożsamości techniczne. Pełna macierz
+rola × uprawnienie × endpoint jest generowana z kodu w [ROLES.md](ROLES.md) (test pilnuje, że
+jest aktualna); tu tylko skrót.
+
+| Rola | Nazwa w UI | Zakres |
+|---|---|---|
+| `administrator` | Administracja | wszystkie uprawnienia, w tym `iam:manage`, `scope:manage`, `agent:configure`, `integrations:manage`, `audit:read` |
+| `editor` | Dodawanie, usuwanie, modyfikacja | cele, skany L1, zatwierdzanie L2/L3 i planów agenta, statusy, raporty, kill switch |
+| `modifier` | Modyfikacja i odczyt | zmiana statusów i decyzje w kolejce weryfikacji, bez dodawania i skanowania |
+| `viewer` | Odczyt | odczyt i eksport |
+| `agent` | – | brak uprawnień API; wyłącznie zdolności nadane przez administratora (`mcp:tool:<nazwa>`) |
+| `system` | – | pipeline: L1 i zatwierdzone L2/L3 przez MCP |
+
+- **Role własne** (edytor ról w konsoli, `iam:manage`): dowolny podzbiór uprawnień z
+  `rules/roles.yaml` poza `iam:manage`; zapis w `iam_custom_role`, nadania w `iam_role_grant`,
+  każda zmiana w audycie. Rola z pliku zawsze wygrywa z rolą własną o tej samej nazwie, a
+  Administrację nadaje się tylko w Keycloak.
 
 - Każdy endpoint deklaruje uprawnienie przez zależność `require("findings:read")`. Endpoint
   bez deklaracji nie przechodzi testu (test przegląda wszystkie trasy FastAPI). To zamyka
   lukę „ktoś zapomniał dodać kontrolę”.
 - Macierz testów rola × endpoint generowana z tras: dla każdego endpointu dozwolone role
   dostają 2xx, pozostałe 403, brak tokenu 401. Odmowa trafia do audytu (scenariusz demo 5).
-- Menedżer dostaje dane z redakcją: adresy IP, banery i dowody techniczne są zastąpione
-  opisem, dopóki rola nie ma `secrets:redacted:view`. Redakcja jest w warstwie serializacji
+- Rola bez `secrets:redacted:view` (np. rola własna) dostaje dane z redakcją: adresy IP,
+  banery i dowody techniczne są zastąpione opisem. Redakcja jest w warstwie serializacji
   odpowiedzi API, nie w UI.
 - **Fallback** `AUTH_PROVIDER=local` (wbudowane logowanie FastAPI) **nie powstał**: Keycloak
   26 zużywa po starcie 577 MiB przy limicie 900 MB (pomiar w e2e w CI), więc mieści się w budżecie.
-- Wejście do konsoli operacyjnej sprawdza endpoint `GET /api/console/admin`
+- Wejście do konsoli zespołu IT sprawdza endpoint `GET /api/console/admin`
   (`console:admin`); odmowa trafia do audytu (scenariusz demo 5). Interfejs tylko pokazuje
   stronę „brak dostępu”.
 - Każde żądanie dostaje `request_id` (nagłówek `X-Request-ID` od nginx albo nowy), a wpisy
@@ -1297,13 +1297,21 @@ PR działa `redteam-mock` (atrapa generatora, posłuszny model, sędzia atrapa) 
 
 ---
 
-## 14. Dwie konsole
+## 14. Konsola zespołu IT
 
-Dwie osobne aplikacje Vite w workspace npm, ze wspólną biblioteką `frontend/shared`
-(komponenty shadcn/ui, klient API generowany z OpenAPI, słownik pojęć, motyw, dostępność).
+Od P1 jest jedna aplikacja Vite (`frontend/admin`) ze wspólną biblioteką `frontend/shared`.
+Konsola menedżera (`/dashboard`) została usunięta razem z rolą `manager`; przydatne elementy
+trafiły do konsoli zespołu IT: karta hosta (`/zasoby/:id`: atrybuty, usługi, zagrożenia,
+historia), skrzynka raportów z banerem zero-day. Mapa jako widok sieci i segmentów jest
+zaplanowana w P10.
 
-| | `/dashboard` (menedżer) | `/admin` (konsola operacyjna) |
-|---|---|---|
+- Menu i formularze ukrywają to, czego rola nie może zrobić (`NavItem.permission`, `can()`),
+  ale granicę bezpieczeństwa wyznacza RBAC w backendzie.
+- „Role i użytkownicy” (`/role`, `iam:read`; zmiany z `iam:manage`): macierz uprawnień,
+  edytor ról własnych, nadawanie i odbieranie ról.
+- Dostępność: kontrast, kolor nigdy jako jedyny nośnik informacji, obsługa klawiatury.
+
+---|---|---|
 | Kto | `manager`, `auditor` | `admin` z MFA |
 | Dane | tylko odczyt, redakcja danych wrażliwych | pełne dane techniczne (poza sekretami) |
 | Kod | **nie zawiera** komponentów ani wywołań funkcji administracyjnych (osobny bundle) | wszystko |
@@ -1724,6 +1732,9 @@ metryki nie obiecuje „zero shadow IT”: mówi o tym, co dało się zobaczyć 
 
 ### 24.4 Konsola menedżera
 
+> **Usunięte w P1** (zmiana kierunku, §0). Opis zostaje jako historia decyzji.
+
+
 - Na stronie głównej zdanie w prostym języku, np. „Atakujący z internetu widzi 3 rzeczy, o
   których nie wiemy” (liczba z korelacji, zdanie z szablonu).
 - Na mapie i w karcie urządzenia oznaczenie „widoczne z internetu” oraz widok porównawczy
@@ -1749,6 +1760,12 @@ najważniejsza część modułu.
 ---
 
 ## 25. Moduł 21: raport „Aktualny obraz” i asystent menedżera (Sentek)
+
+> **Usunięte w P1** (zmiana kierunku, §0): konsola menedżera, „Aktualny obraz” i prośby o
+> skan. Sentek zostaje w backendzie dla konsoli zespołu IT: prośbę o skan zamienia w
+> propozycję zadania dla agenta (`agent_task`), interfejs wraca w P10. Reszta sekcji to
+> historia decyzji.
+
 
 Druga połowa **Etapu 6** (konsola menedżera), w kolejności: strona główna i tabele → karta
 urządzenia → „Aktualny obraz” i świeżość danych → samouczek → asystent z intencjami → mapa

@@ -1,98 +1,129 @@
 # Role i uprawnienia (RBAC). Źródło prawdy dla backendu: każdy endpoint deklaruje
 # uprawnienie, a rola to zestaw uprawnień. Keycloak przechowuje tylko przynależność do ról.
 # Zmiana tego pliku = zmiana uprawnień, więc przechodzi przez przegląd w PR.
-# Projekt: docs/ARCHITECTURE.md, sekcja 4.
-version: 1
+# Cztery role z briefu CBI AGH (pkt 13) + techniczne `agent` i `system`. Macierz rola ×
+# endpoint × akcja: docs/ROLES.md (test: backend/tests/test_roles_matrix.py).
+# Role własne tworzy administrator w konsoli (edytor ról, tabela iam_custom_role); mogą
+# zawierać tylko uprawnienia z tej listy, bez `iam:manage`.
+version: 2
 
-# mfa: true = uprawnienie działa tylko z tokenem po uwierzytelnieniu wieloskładnikowym
-# (konsola operacyjna /admin). Bez MFA rola admin ma wyłącznie uprawnienia do odczytu.
+# mfa: true = uprawnienie działa tylko z tokenem po uwierzytelnieniu wieloskładnikowym.
+# Konsola zespołu IT (/admin) wymaga MFA od wszystkich ról, więc bez MFA zostaje wyłącznie
+# odczyt przez API.
 permissions:
-  console:admin: {description: "Wejście do konsoli operacyjnej (/admin); odmowa trafia do audytu", mfa: true}
+  console:admin: {description: "Wejście do konsoli zespołu IT (/admin); odmowa trafia do audytu", mfa: true}
   inventory:read: {description: "Odczyt inwentarza zasobów"}
   inventory:write: {description: "Dodawanie i import zasobów", mfa: true}
   findings:read: {description: "Odczyt zagrożeń, feedu i wyjaśnień"}
   findings:update: {description: "Zmiana statusu zagrożenia", mfa: true}
-  risks:read: {description: "Odczyt rejestru ryzyk"}
-  compliance:read: {description: "Odczyt wyników zgodności"}
   reports:read: {description: "Odczyt raportów"}
   reports:export: {description: "Eksport raportów (PDF, CSV, JSON)"}
-  reports:snapshot: {description: "Raport „Aktualny obraz” na żądanie z bieżącego stanu, bez skanowania"}
   reports:generate: {description: "Tworzenie raportów i zlecanie warstwy „W skrócie” modelowi", mfa: true}
   notifications:read: {description: "Odczyt powiadomień"}
-  personal_data:view: {description: "Podgląd danych osobowych (każdy podgląd w audycie)"}
   secrets:redacted:view: {description: "Pełne dane techniczne (adresy, banery, dowody) poza sekretami"}
   audit:read: {description: "Odczyt dziennika audytu"}
   audit:export: {description: "Eksport dziennika audytu i dowodów"}
   scope:read: {description: "Odczyt zakresu skanowania"}
-  scope:manage: {description: "Zmiana zakresu skanowania", mfa: true}
+  scope:manage: {description: "Zmiana zakresu skanowania (allowlista, denylista, limity)", mfa: true}
   scan:read: {description: "Odczyt skanów i akcji skanujących"}
-  # Moduł 21: menedżer prosi o skan, ale go nie uruchamia; zatwierdza admin (scan:run).
   # Sentek: asystent tylko czyta dane z uprawnieniami pytającego; niczego nie uruchamia.
   assistant:use: {description: "Pytania do asystenta Sentek (odpowiedzi z danych, w granicach własnych uprawnień)"}
-  scan:request: {description: "Prośba o nowe skanowanie do kolejki admina (bez uruchamiania skanu)"}
   scan:run: {description: "Uruchamianie skanów L1", mfa: true}
-  scan:approve:l2: {description: "Zatwierdzanie akcji L2", mfa: true}
-  scan:approve:l3: {description: "Zatwierdzanie akcji L3", mfa: true}
+  scan:approve:l2: {description: "Zatwierdzanie akcji L2 (także w planach agenta)", mfa: true}
+  scan:approve:l3: {description: "Zatwierdzanie akcji L3 (także w planach agenta)", mfa: true}
   feeds:sync: {description: "Ręczna synchronizacja feedów", mfa: true}
   review:read: {description: "Odczyt kolejki weryfikacji dopasowań"}
   review:decide: {description: "Decyzje w kolejce weryfikacji", mfa: true}
   explanations:generate: {description: "Zlecanie wyjaśnień modelowi lokalnemu", mfa: true}
   llm:external:use: {description: "Użycie zewnętrznego modelu (dane zanonimizowane)", mfa: true}
   llm:external:manage: {description: "Włączanie zewnętrznego modelu", mfa: true}
-  agent:task: {description: "Zlecanie zadań agentowi", mfa: true}
+  agent:task: {description: "Zlecanie zadań agentowi i zatwierdzanie jego planów", mfa: true}
   agent:configure: {description: "Nadawanie zdolności agentowi", mfa: true}
-  agent:kill: {description: "Kill switch agenta", mfa: true}
+  agent:kill: {description: "Kill switch: zatrzymanie agenta i wszystkich skanów", mfa: true}
   agent:read: {description: "Odczyt zadań, planów, zdolności i poświadczeń JIT agenta (bez sekretów)"}
   # Moduł 19: testy agenta. Rola `agent` nie ma żadnego z tych uprawnień.
   agent_test:read: {description: "Odczyt wyników testu bezpieczeństwa agenta"}
   agent_test:run: {description: "Uruchomienie testu bezpieczeństwa agenta", mfa: true}
   agent_test:override: {description: "Wymuszenie konfiguracji agenta mimo niezaliczonego testu (z uzasadnieniem)", mfa: true}
-  integrations:manage: {description: "Konfiguracja integracji", mfa: true}
-  owners:manage: {description: "Przypisywanie właścicieli zasobów", mfa: true}
-  iam:manage: {description: "Użytkownicy, role i uprawnienia", mfa: true}
-  risk:accept: {description: "Formalna akceptacja ryzyka", mfa: true}
+  integrations:manage: {description: "Konfiguracja integracji (DefectDojo, kanały powiadomień)", mfa: true}
+  iam:read: {description: "Odczyt użytkowników, ról i uprawnień"}
+  iam:manage: {description: "Użytkownicy, role i uprawnienia (edytor ról)", mfa: true}
+  risk:accept: {description: "Formalna akceptacja ryzyka (status „ryzyko zaakceptowane”)", mfa: true}
 
 roles:
-  admin:
-    description: "Administrator, inżynier bezpieczeństwa, IT (konsola /admin, MFA)"
+  administrator:
+    description: "Administracja: użytkownicy i role, konfiguracja, zakresy, integracje, agent, wszystkie operacje na danych"
     kind: human
     permissions: "*"
-  manager:
-    description: "Menedżer: tylko odczyt całej organizacji, dane wrażliwe zredagowane (/dashboard)"
+  editor:
+    description: "Dodawanie, usuwanie, modyfikacja: cele, skany, wyniki; zatwierdzanie planów agenta i akcji L2+"
     kind: human
     permissions:
+      - console:admin
       - inventory:read
+      - inventory:write
       - findings:read
-      - risks:read
-      - compliance:read
+      - findings:update
       - reports:read
       - reports:export
+      - reports:generate
       - notifications:read
-      - personal_data:view
-      - reports:snapshot
-      - scan:request
-      - assistant:use
-  auditor:
-    description: "Audytor: odczyt i eksport dowodów oraz pełnego dziennika audytu (opcjonalna)"
-    kind: human
-    permissions:
-      - inventory:read
-      - findings:read
-      - risks:read
-      - compliance:read
-      - reports:read
-      - reports:export
-      - notifications:read
-      - audit:read
-      - audit:export
+      - secrets:redacted:view
       - scope:read
       - scan:read
+      - scan:run
+      - scan:approve:l2
+      - scan:approve:l3
+      - assistant:use
+      - feeds:sync
+      - review:read
+      - review:decide
+      - explanations:generate
+      - llm:external:use
+      - agent:read
+      - agent:task
+      - agent:kill
+      - agent_test:read
+      - agent_test:run
+      - risk:accept
+  modifier:
+    description: "Modyfikacja i odczyt: edycja istniejących danych (statusy, decyzje), bez dodawania i usuwania"
+    kind: human
+    permissions:
+      - console:admin
+      - inventory:read
+      - findings:read
+      - findings:update
+      - reports:read
+      - reports:export
+      - notifications:read
+      - secrets:redacted:view
+      - scope:read
+      - scan:read
+      - assistant:use
+      - review:read
+      - review:decide
+      - agent:read
+      - agent_test:read
+  viewer:
+    description: "Odczyt: dane, dashboard, raporty, eksport JSON/CSV"
+    kind: human
+    permissions:
+      - console:admin
+      - inventory:read
+      - findings:read
+      - reports:read
+      - reports:export
+      - notifications:read
+      - secrets:redacted:view
+      - scope:read
+      - scan:read
+      - assistant:use
       - review:read
       - agent:read
       - agent_test:read
-      - assistant:use
   agent:
-    description: "Agent AI (tożsamość nieludzka): wyłącznie zdolności nadane przez admina"
+    description: "Agent AI (tożsamość nieludzka): wyłącznie zdolności nadane przez administratora"
     kind: agent
     permissions: []
   system:

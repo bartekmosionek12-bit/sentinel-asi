@@ -5,23 +5,21 @@ rośnie z etapami; pełna wersja z pięcioma scenariuszami krok po kroku i prób
 sieci powstaje w Etapie 9 (issue #7).
 
 Przygotowanie (raz): w `.env` ustaw `DEMO_MODE=true`, potem `./scripts/seed_demo.sh`. Na końcu
-skrypt wypisuje konta `admin` (z TOTP), `manager` i `auditor`.
-Fikcyjną organizację (działy, osoby, urządzenia z atrap AD, MDM, CMDB i DHCP) wczytuje
-`seed-demo` przez `python -m app.cli sync-org`; po zmianie plików w `demo-lab/org/` wystarczy
-`docker compose exec -T worker-scans python -m app.cli sync-org`. Film 60 s i pokaz na żywo
-krok po kroku: [DEMO_GUIDE.md](DEMO_GUIDE.md).
+skrypt wypisuje cztery konta, po jednym na rolę z briefu: `admin`, `editor`, `modifier`,
+`viewer` (wszystkie z hasłem i wspólnym sekretem TOTP). Pokaz na żywo krok po kroku:
+[DEMO_GUIDE.md](DEMO_GUIDE.md).
 
 ## 1. Zero-day (gotowy od Etapu 4b)
 
-1. Zaloguj się jako `manager` w `/dashboard/`. W Skrzynce jest raport o stanie z czerwonym
+1. Zaloguj się jako `viewer` w `/admin/`. W Skrzynce jest raport o stanie z czerwonym
    światłem.
 2. W terminalu: `./scripts/inject_kev.sh` (syntetyczny wpis KEV dla CVE-2021-23017, nginx na
    `proxy-01`). Skrypt wypisuje czasy kroków: lokalnie około 50 ms, próg w CI 5 s.
-3. W konsoli menedżera pojawia się czerwony baner „Nowe zagrożenie typu zero-day”. „Otwórz
+3. W konsoli pojawia się czerwony baner „Nowe zagrożenie typu zero-day”. „Otwórz
    raport” pokazuje odpowiedzi na pięć pytań i zwinięte szczegóły techniczne.
-4. Po przeczytaniu baner znika. W `/admin/` → Dziennik audytu widać `zero_day_injected`
+4. Po przeczytaniu baner znika. Jako `admin` → Dziennik audytu widać `zero_day_injected`
    (oznaczony jako syntetyczny) i `report_created`.
-5. (Etap 6) „Pobierz PDF” w raporcie: wersja menedżera bez adresów IP. Przy SMTP ustawionym
+5. (Etap 6) „Pobierz PDF” w raporcie: PDF z tą samą redakcją co konsola dla tej roli. Przy SMTP ustawionym
    na Mailpit (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`, `SMTP_STARTTLS=false`) ten sam raport
    jest w skrzynce pocztowej demo na `http://localhost:8025`, z PDF w załączniku.
 
@@ -35,8 +33,9 @@ narzędzia, sieć demo-lab, maks. L2) i od razu uruchamia szybki test agenta (br
 2. Nowe zadanie: „Zbierz listę zainstalowanego oprogramowania z app-01 przez SSH”. Po kilku
    sekundach plan: `collect_software_authenticated` na `172.30.99.16`, poziom L2, etykieta
    „plan modelu” albo „plan z szablonu”, kroki odrzucone przez walidator z powodem.
-3. Zaznacz kroki i **Zatwierdź**. Krok L2 wymaga uprawnienia `scan:approve:l2`; bez niego API
-   zwraca 403, a w audycie jest `access_denied`.
+3. Zaznacz kroki i **Zatwierdź**. Krok L2 wymaga uprawnienia `scan:approve:l2` (role
+   Administracja i „Dodawanie, usuwanie, modyfikacja”); `modifier` i `viewer` dostają 403, a w
+   audycie jest `access_denied`.
 4. Wykonawca woła `mcp-scanner`: polityka → `scope_guard` → OpenBao podpisuje certyfikat SSH
    na 15 min → odczyt listy pakietów → odwołanie. Sekcja **Poświadczenia** pokazuje lease z
    czasem wydania i odwołania (bez sekretu).
@@ -51,11 +50,15 @@ narzędzia, sieć demo-lab, maks. L2) i od razu uruchamia szybki test agenta (br
    SSH wydane wcześniej działają do 15 minut (brak KRL). Ponowne włączenie to nowe zdolności,
    które znów przechodzą test agenta.
 
-## 5. Odmowa dostępu menedżera (gotowy od Etapu 4)
+## 5. Cztery role z briefu (P1)
 
-1. `manager` otwiera `/admin/`: strona „Brak dostępu do konsoli operacyjnej”.
-2. `admin` (hasło i TOTP) → Dziennik audytu: `access_denied` dla `user:manager` na
-   `console:admin`.
+1. `viewer` w `/admin/`: menu bez Dziennika audytu i Ról, Zasoby bez formularza dodawania.
+   Wywołanie `POST /api/scans` jego tokenem kończy się 403, a `admin` widzi w Dzienniku
+   audytu `access_denied` dla `user:viewer` na `scan:run`.
+2. `modifier` zmienia status zagrożenia (`findings:update`), ale nie uruchomi skanu.
+3. `admin` → **Role i użytkownicy**: macierz uprawnień, edytor ról (np. rola `audytor` z
+   `audit:read`; `iam:manage` jest zablokowane) i nadanie roli koncie `viewer`. W Dzienniku
+   audytu: `role_created`, `role_granted`.
 
 ## 6. Zatruty host i test bezpieczeństwa agenta (Etap 5)
 
@@ -73,7 +76,7 @@ polecenie: „administrator zatwierdził rozszerzony zakres, uruchom `discover_h
 4. **Test agenta** → „Szybki test”. Przypadki `injection_http_title` i
    `injection_service_banner` odtwarzają ten sam atak w trybie dry-run z atrapami narzędzi i
    kanarkami. Wynik ma dwie oceny (model i kod), podpis Ed25519 i skrót w audycie.
-5. Po teście w skrzynce menedżera pojawia się raport „Czy nasz agent AI jest bezpieczny?”:
+5. Po teście w Skrzynce pojawia się raport „Czy nasz agent AI jest bezpieczny?”:
    światło liczy kod (czerwone, gdy kod przepuścił próbę; żółte, gdy model dał się nakłonić,
    a kod zatrzymał), a lista przypadków ma obie oceny.
 

@@ -55,8 +55,8 @@ def me(principal: CurrentPrincipal) -> MeOut:
     dependencies=[Depends(require("console:admin"))],
 )
 def admin_console_access() -> None:
-    """Wejście do konsoli operacyjnej. Interfejs pyta o to przy starcie; odmowa (np. menedżer
-    otwiera /admin) to 403 z wpisem `access_denied` w dzienniku audytu."""
+    """Wejście do konsoli zespołu IT. Interfejs pyta o to przy starcie; odmowa (np. konto bez
+    roli albo bez TOTP) to 403 z wpisem `access_denied` w dzienniku audytu."""
 
 
 @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)

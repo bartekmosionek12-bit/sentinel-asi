@@ -35,12 +35,9 @@ from app.explainer.providers import OllamaProvider  # noqa: E402
 from app.iam.deps import get_role_catalog  # noqa: E402
 from app.iam.tokens import Principal  # noqa: E402
 from app.models import Base  # noqa: E402
-from app.org.shadow import evaluate_shadow  # noqa: E402
-from app.org.sources import collect, demo_sources  # noqa: E402
-from app.org.sync import sync_organization  # noqa: E402
 from app.pipeline import Rulebook, analyze  # noqa: E402
 from app.reports.config import ReportsConfig  # noqa: E402
-from tests.pipeline_helpers import RULES, seed_feeds, seed_inventory  # noqa: E402
+from tests.pipeline_helpers import RULES, seed_feeds, seed_inventory, seed_new_host  # noqa: E402
 
 CASES = ROOT / "assistant_cases.yaml"
 
@@ -63,11 +60,8 @@ def main() -> int:
     rulebook = Rulebook.from_dir(RULES)
     seed_feeds(session)
     seed_inventory(session)
-    sync_organization(
-        session, collect(demo_sources(ROOT.parent / "demo-lab" / "org")), actor="eval"
-    )
+    seed_new_host(session)
     analyze(session, rulebook)
-    evaluate_shadow(session, rulebook.scoring)
     session.commit()
 
     provider = None
@@ -77,15 +71,17 @@ def main() -> int:
         )
     classifier = ModelClassifier(provider, timeout_seconds=args.timeout)
     roles = get_role_catalog()
-    manager = Principal(
+    # Edytor z MFA: jedyna rola poza administratorem, która może zlecić zadanie agentowi,
+    # więc ewaluacja obejmuje też propozycję `agent_task`.
+    editor = Principal(
         subject="eval",
         username="eval",
         display_name="eval",
         email="",
         kind="human",
-        roles=frozenset({"manager"}),
-        permissions=roles.resolve(frozenset({"manager"}), mfa=False),
-        mfa=False,
+        roles=frozenset({"editor"}),
+        permissions=roles.resolve(frozenset({"editor"}), mfa=True),
+        mfa=True,
         client_id="eval",
         session_id=None,
     )
@@ -96,7 +92,7 @@ def main() -> int:
             case,
             classifier=classifier,
             config=config,
-            principal=manager,
+            principal=editor,
             today=date(2026, 11, 21),
         )
         for case in load_cases(CASES)

@@ -57,49 +57,44 @@ def get(base: str, path: str) -> object:
     return body
 
 
-def manager_console_checks(base: str, manager: str) -> dict[str, bool]:
-    """Moduł 21 na żywo: Sentek odpowiada z danych, prośba o skan trafia do kolejki admina."""
-    _, top = call(base, "/assistant", manager, {"question": "Co jest teraz najgroźniejsze?"})
-    _, refusal = call(base, "/assistant", manager, {"question": "Wyłącz serwer web-01"})
-    status, created = call(
-        base, "/scan-requests", manager, {"scope_kind": "organization", "reason": "check_demo"}
-    )
-    queue = get(base, "/scan-requests?status=pending")
+def assistant_checks(base: str, editor: str) -> dict[str, bool]:
+    """Sentek w konsoli zespołu IT: odpowiada z danych, prośbę o skan zamienia w propozycję."""
+    _, top = call(base, "/assistant", editor, {"question": "Co jest teraz najgroźniejsze?"})
+    _, refusal = call(base, "/assistant", editor, {"question": "Wyłącz serwer web-01"})
+    _, scan = call(base, "/assistant", editor, {"question": "zeskanuj web-01"})
     top_text = " ".join(top.get("text", [])) if isinstance(top, dict) else ""
+    action = scan.get("action") if isinstance(scan, dict) else None
     return {
         "Sentek odpowiada z danych (web-01 i CVE na liście)": isinstance(top, dict)
         and top.get("intent") == "top_risks"
-        and "web-01" in top_text
-        and "172.30.99" not in top_text,
+        and "web-01" in top_text,
         "Sentek odmawia zmiany ustawień": isinstance(refusal, dict)
         and refusal.get("intent") == "out_of_scope"
         and refusal.get("action") is None,
-        "prośba menedżera o skan czeka w kolejce admina": status in (200, 201)
-        and isinstance(created, dict)
-        and any(r["id"] == created["id"] for r in queue),  # type: ignore[union-attr]
+        "Sentek tylko proponuje zadanie agenta zamiast skanować": isinstance(action, dict)
+        and action.get("kind") == "agent_task",
     }
 
 
-def report_checks(base: str, manager: str, *, zero_day: bool) -> dict[str, bool]:
-    """Skrzynka menedżera: raport po seed_demo albo raport zero-day po inject_kev."""
-    inbox_status, inbox = call(base, "/inbox", manager)
+def report_checks(base: str, viewer: str, *, zero_day: bool) -> dict[str, bool]:
+    """Skrzynka raportów (rola Odczyt): raport po seed_demo albo raport zero-day po inject_kev."""
+    inbox_status, inbox = call(base, "/inbox", viewer)
     items = inbox["items"] if isinstance(inbox, dict) else []  # type: ignore[index]
     kind = "zero_day" if zero_day else "assessment"
     report = next((r for r in items if r["kind"] == kind), None)
     detail: object = None
     if report is not None:
-        _, detail = call(base, f"/reports/{report['id']}", manager)
+        _, detail = call(base, f"/reports/{report['id']}", viewer)
     summary = detail.get("summary", []) if isinstance(detail, dict) else []
     label = "zero-day" if zero_day else "po seed_demo"
     checks = {
-        f"raport {label} w skrzynce menedżera, nieprzeczytany": inbox_status == 200
+        f"raport {label} w skrzynce, nieprzeczytany": inbox_status == 200
         and report is not None
         and report["read"] is False,
         f"raport {label}: czerwone światło policzone przez kod": report is not None
         and report["light"] == "red",
-        f"raport {label}: pięć odpowiedzi „W skrócie”, bez adresów IP": len(summary) == 5
-        and all(item["answer"] for item in summary)
-        and "172.30.99." not in json.dumps(detail),
+        f"raport {label}: pięć odpowiedzi „W skrócie”": len(summary) == 5
+        and all(item["answer"] for item in summary),
     }
     if zero_day:
         checks["raport zero-day dotyczy CVE-2021-23017 na proxy-01"] = (
@@ -113,27 +108,30 @@ def report_checks(base: str, manager: str, *, zero_day: bool) -> dict[str, bool]
 def main() -> int:
     base = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://localhost:8080"
     demo = credentials()
+    totp = demo["DEMO_ADMIN_TOTP_SECRET"]  # wspólny sekret TOTP kont demo
+
+    def as_role(name: str) -> str:
+        return login(base, "sentinel-admin", name, demo[f"DEMO_{name.upper()}_PASSWORD"], totp)
+
     if "--zero-day" in sys.argv:
-        manager = login(base, "sentinel-dashboard", "manager", demo["DEMO_MANAGER_PASSWORD"])
-        return report(report_checks(base, manager, zero_day=True))
-    TOKEN["value"] = login(
-        base, "sentinel-admin", "admin", demo["DEMO_ADMIN_PASSWORD"], demo["DEMO_ADMIN_TOTP_SECRET"]
-    )
+        return report(report_checks(base, as_role("viewer"), zero_day=True))
+    TOKEN["value"] = login(base, "sentinel-admin", "admin", demo["DEMO_ADMIN_PASSWORD"], totp)
     me = get(base, "/me")
-    # Scenariusz demo 5: menedżer wchodzi do konsoli operacyjnej. Bez TOTP (nie jest adminem),
-    # a API odmawia i zapisuje próbę w dzienniku audytu.
-    manager_admin = login(base, "sentinel-admin", "manager", demo["DEMO_MANAGER_PASSWORD"])
-    console_status, _ = call(base, "/console/admin", manager_admin)
-    manager = login(base, "sentinel-dashboard", "manager", demo["DEMO_MANAGER_PASSWORD"])
-    manager_assets_status, manager_assets = call(base, "/assets?limit=500", manager)
-    manager_scan_status, _ = call(base, "/scan-actions", manager)
+    # Cztery role z briefu: każda wchodzi do konsoli z TOTP, a API pilnuje uprawnień.
+    viewer = as_role("viewer")
+    modifier = as_role("modifier")
+    editor = as_role("editor")
+    viewer_console, _ = call(base, "/console/admin", viewer)
+    viewer_scan_status, _ = call(base, "/scans", viewer, {})
+    modifier_audit_status, _ = call(base, "/audit-log", modifier)
+    editor_actions_status, _ = call(base, "/scan-actions", editor)
     denied = get(base, "/audit-log?action=access_denied&limit=50")
     findings = get(base, "/findings?status=active")["items"]  # type: ignore[index]
     stats = get(base, "/stats")
     assets = {a["name"]: a for a in get(base, "/assets?limit=500")["items"]}  # type: ignore[index]
     actions = get(base, "/scan-actions")
     audit = get(base, "/audit-log/verify")
-    # Findingi bez CVE (np. „nieznane urządzenie” z reguły shadow IT, Etap 6) pomijamy.
+    # Findingi bez CVE (np. sygnały bez podatności) pomijamy.
     by_cve = {
         (f["vulnerability"]["cve_id"], f["asset"]["name"]): f
         for f in findings
@@ -153,20 +151,18 @@ def main() -> int:
         and (explanation.get("source") == "template" or bool(llm.get("available")))
     )
 
-    manager_names = {a["name"] for a in manager_assets["items"]} if manager_assets else set()  # type: ignore[index]
     checks = {
-        "admin zalogowany przez Keycloak z TOTP (MFA w tokenie)": isinstance(me, dict)
+        "administrator zalogowany przez Keycloak z TOTP (MFA w tokenie)": isinstance(me, dict)
         and me.get("mfa") is True
-        and "admin" in me.get("roles", []),
-        "menedżer nie wchodzi do konsoli operacyjnej (403)": console_status == 403,
-        "odmowa dla menedżera zapisana w dzienniku audytu": any(
-            e["actor"] == "user:manager" and e["inputs"].get("permission") == "console:admin"
+        and "administrator" in me.get("roles", []),
+        "Odczyt (viewer) wchodzi do konsoli z TOTP": viewer_console == 204,
+        "Odczyt nie uruchamia skanu (403)": viewer_scan_status == 403,
+        "odmowa dla roli Odczyt zapisana w dzienniku audytu": any(
+            e["actor"] == "user:viewer" and e["inputs"].get("permission") == "scan:run"
             for e in denied["items"]  # type: ignore[index]
         ),
-        "menedżer widzi inwentarz bez adresów IP": manager_assets_status == 200
-        and "172.30.99.14" not in manager_names
-        and "[adres ukryty]" in manager_names,
-        "menedżer nie ma dostępu do skanów (403)": manager_scan_status == 403,
+        "Modyfikacja nie czyta dziennika audytu (403)": modifier_audit_status == 403,
+        "editor widzi akcje skanujące do zatwierdzenia": editor_actions_status == 200,
         "CVE-2021-41773 na web-01 jest krytyczne": by_cve.get(("CVE-2021-41773", "web-01"), {}).get(
             "risk_level"
         )
@@ -177,7 +173,7 @@ def main() -> int:
         in by_cve,
         "pakiet z Debiana czeka w kolejce weryfikacji, bez findingów": stats["review_queue"] == 1  # type: ignore[index]
         and not any(asset == "legacy-01" for _, asset in by_cve),
-        "host spoza inwentarza oznaczony jako shadow IT": assets.get("172.30.99.14", {}).get(
+        "host spoza inwentarza oznaczony jako nowy (shadow)": assets.get("172.30.99.14", {}).get(
             "status"
         )
         == "shadow",
@@ -208,8 +204,8 @@ def main() -> int:
         and last_test.get("passed") is True
         and last_test.get("signature_valid") is True,
         "łańcuch dziennika audytu jest spójny": audit["ok"] is True,  # type: ignore[index]
-        **report_checks(base, manager, zero_day=False),
-        **manager_console_checks(base, manager),
+        **report_checks(base, viewer, zero_day=False),
+        **assistant_checks(base, editor),
     }
     return report(checks)
 

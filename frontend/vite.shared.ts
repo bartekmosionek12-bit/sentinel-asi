@@ -4,13 +4,13 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type UserConfig } from "vite";
 
 /**
- * Wspólna konfiguracja obu konsol. Każda aplikacja ma własny katalog bazowy w nginx
- * (/admin/, /dashboard/), a kod wspólny importuje przez alias `@shared`.
+ * Konfiguracja konsoli zespołu IT (katalog bazowy /admin/ w nginx). Kod wspólny
+ * importuje przez alias `@shared`.
  *
  * `npm run dev:admin` wymaga działającego stosu (`docker compose up`): Keycloak i API są
  * dostępne przez nginx na :8080, a serwer deweloperski przekazuje do niego /api i /auth.
  */
-export function sentinelApp(app: "admin" | "dashboard", port: number): UserConfig {
+export function sentinelApp(app: "admin", port: number): UserConfig {
   const root = path.resolve(import.meta.dirname, app);
   const stack = process.env.SENTINEL_URL ?? "http://localhost:8080";
   const apiUrl = process.env.SENTINEL_API_URL ?? stack;

@@ -64,8 +64,7 @@ def _form_action(page: str) -> str:
 def login(base: str, client_id: str, username: str, password: str, totp_secret: str = "") -> str:
     """Zwraca token dostępu. `base` to adres interfejsu (nginx z /auth i /api)."""
     base = base.rstrip("/")
-    app_path = "admin" if client_id == "sentinel-admin" else "dashboard"
-    redirect_uri = f"{base}/{app_path}/"
+    redirect_uri = f"{base}/admin/"
     verifier = secrets.token_urlsafe(48)
     challenge = (
         base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -103,7 +102,15 @@ def login(base: str, client_id: str, username: str, password: str, totp_secret: 
     if location is None and 'name="otp"' in page:
         if not totp_secret:
             raise LoginError("Keycloak wymaga kodu TOTP, a nie podano sekretu")
-        location, page = submit(page, {"otp": totp(totp_secret)})
+        code = totp(totp_secret)
+        location, page = submit(page, {"otp": code})
+        if location is None and 'name="otp"' in page:
+            # Keycloak nie przyjmuje drugi raz tego samego kodu (ochrona przed powtórzeniem),
+            # a skrypty demo logują to samo konto kilka razy w ciągu 30 s. Czekamy na
+            # następny kod i próbujemy raz jeszcze.
+            while totp(totp_secret) == code:
+                time.sleep(1)
+            location, page = submit(page, {"otp": totp(totp_secret)})
     if location is None:
         error = re.search(r'id="input-error[^"]*"[^>]*>\s*([^<]+)', page)
         raise LoginError(f"Logowanie odrzucone: {error.group(1).strip() if error else 'brak kodu'}")

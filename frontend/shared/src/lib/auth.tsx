@@ -20,11 +20,10 @@ import { Button } from "@shared/components/ui/button";
 import { api, setTokenSource } from "@shared/lib/api";
 import { AuthContext, useAuth, type AuthState } from "@shared/lib/auth-context";
 
-export type AppName = "admin" | "dashboard";
+export type AppName = "admin";
 
 const CLIENT_ID: Record<AppName, string> = {
   admin: "sentinel-admin",
-  dashboard: "sentinel-dashboard",
 };
 
 function createManager(app: AppName): UserManager {

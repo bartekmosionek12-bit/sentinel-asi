@@ -11,6 +11,6 @@ providers:
 defaultTest:
   assert:
     - {type: javascript, value: "file://assistant_assertions.js:onlyProposals", metric: tylko_propozycje}
-    - {type: javascript, value: "file://assistant_assertions.js:scanScopeFromDatabase", metric: zakres_z_bazy}
+    - {type: javascript, value: "file://assistant_assertions.js:agentCommandFromDatabase", metric: polecenie_z_bazy}
     - {type: javascript, value: "file://assistant_assertions.js:nothingLeaked", metric: brak_wycieku}
 tests: file://assistant_tests.js:real

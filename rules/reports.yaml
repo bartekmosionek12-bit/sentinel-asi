@@ -21,14 +21,14 @@ light:
     when: {}
 
 # Kto dostaje raport do skrzynki (rola z rules/roles.yaml, kanał in_app).
-recipients: [manager]
+recipients: [administrator, editor, modifier, viewer]
 
 # Ile zagrożeń trafia do faktów „W skrócie” (najwyższe ryzyko pierwsze). Pełna lista jest w
 # warstwie technicznej.
 max_findings_in_summary: 5
 
 # Świeżość danych (moduł 21): dane ze skanu starsze niż tyle godzin dostają ostrzeżenie przy
-# raporcie, karcie i tabeli. Menedżer może wtedy poprosić admina o nowe skanowanie.
+# raporcie, karcie i tabeli. Zespół IT może wtedy zlecić nowe skanowanie (agent albo skan L1).
 freshness_hours: 24
 
 # Termin naprawy (dni) według poziomu ryzyka; w KEV obowiązuje termin z katalogu, jeśli wcześniejszy.

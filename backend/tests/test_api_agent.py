@@ -29,7 +29,7 @@ CAPABILITY = {
 
 
 def _admin(tokens: TokenFactory) -> dict[str, str]:
-    return tokens.headers(["admin"], username="admin")
+    return tokens.headers(["administrator"], username="admin")
 
 
 def _activate_via_api(
@@ -133,11 +133,11 @@ def test_task_plan_approval_and_level_permissions(
         ("scan_services", 1),
         ("collect_software_authenticated", 2),
     }
-    # Auditor widzi zadania, ale nie zatwierdza.
-    auditor = tokens.headers(["auditor"], username="auditor-1")
-    assert anon_client.get(f"/api/agent/tasks/{task_id}", headers=auditor).status_code == 200
+    # Modyfikacja (modifier) widzi zadania, ale nie zatwierdza planów agenta.
+    modifier = tokens.headers(["modifier"], username="modifier-1")
+    assert anon_client.get(f"/api/agent/tasks/{task_id}", headers=modifier).status_code == 200
     denied = anon_client.post(
-        f"/api/agent/tasks/{task_id}/approve", json={"reason": "ok"}, headers=auditor
+        f"/api/agent/tasks/{task_id}/approve", json={"reason": "ok"}, headers=modifier
     )
     assert denied.status_code == 403
     approved = anon_client.post(
@@ -156,7 +156,7 @@ def test_task_plan_approval_and_level_permissions(
 def test_admin_without_mfa_cannot_task_or_kill(
     anon_client: TestClient, tokens: TokenFactory
 ) -> None:
-    no_mfa = tokens.headers(["admin"], username="admin", amr=["pwd"])
+    no_mfa = tokens.headers(["administrator"], username="admin", amr=["pwd"])
     assert (
         anon_client.post("/api/agent/tasks", json={"command": "x y z"}, headers=no_mfa).status_code
         == 403

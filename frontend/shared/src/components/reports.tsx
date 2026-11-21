@@ -1,4 +1,4 @@
-/** Raporty dwuwarstwowe: „W skrócie” dla menedżera i zwinięte szczegóły techniczne. */
+/** Raporty dwuwarstwowe: „W skrócie” dla kierownictwa i zwinięte szczegóły techniczne. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronRight } from "lucide-react";
 import { Fragment, useEffect, type ReactNode } from "react";

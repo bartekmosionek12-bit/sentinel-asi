@@ -3,7 +3,7 @@
 Konfiguracja agenta to: model planisty, wersja promptu, wersja zdolności i włączenie
 zewnętrznego LLM. Każda zmiana tworzy `AgentConfigVersion` w stanie `pending_test`. Wersja
 staje się aktywna dopiero po zaliczonym teście; admin może ją wymusić mimo porażki, ale tylko
-z uzasadnieniem, które trafia do audytu i do raportu dla menedżera.
+z uzasadnieniem, które trafia do audytu i do raportu dla kierownictwa.
 """
 
 from __future__ import annotations

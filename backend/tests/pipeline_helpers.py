@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.feeds.base import OfflineSource
 from app.feeds.service import sync_all
-from app.inventory.service import import_assets, parse_assets_csv, record_host_scan
+from app.inventory.service import (
+    asset_fingerprint,
+    import_assets,
+    parse_assets_csv,
+    record_host_scan,
+)
+from app.inventory.sources import touch_source
 from app.matching.cpe import MatchingConfig, load_aliases
 from app.models import Asset
 from app.scanners.models import HostScan, ServiceInfo
@@ -74,3 +80,17 @@ def seed_inventory(session: Session) -> None:
 
 def seed_feeds(session: Session) -> None:
     assert sync_all(session, OfflineSource(FEEDS_DIR)).ok
+
+
+def seed_new_host(session: Session) -> Asset:
+    """Fikcyjny host, który odpowiedział w skanie, a nie było go w inwentarzu (`shadow`)."""
+    asset = Asset(
+        type="workstation",
+        name="DESKTOP-7Q2KD1",
+        fingerprint=asset_fingerprint("workstation", "DESKTOP-7Q2KD1"),
+        status="shadow",
+    )
+    session.add(asset)
+    session.flush()
+    touch_source(session, asset, "scan")
+    return asset

@@ -1,4 +1,4 @@
-"""Sentek (moduł 21, §25.2): intencje, odpowiedzi z danych, uprawnienia, audyt bez tekstu."""
+"""Sentek (§25.2): intencje, odpowiedzi z danych, uprawnienia, audyt bez tekstu."""
 
 from __future__ import annotations
 
@@ -20,13 +20,10 @@ from app.explainer.providers import FakeProvider, ProviderError
 from app.iam.deps import get_role_catalog
 from app.iam.tokens import Principal
 from app.models import AuditLog
-from app.org.shadow import evaluate_shadow
-from app.org.sources import collect, demo_sources
-from app.org.sync import sync_organization
 from app.pipeline import Rulebook, analyze
 from app.reports.config import ReportsConfig
 from tests.conftest import TokenFactory
-from tests.pipeline_helpers import RULES, seed_feeds, seed_inventory
+from tests.pipeline_helpers import RULES, seed_feeds, seed_inventory, seed_new_host
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ReportsConfig.from_dir(RULES)
@@ -43,10 +40,10 @@ def _principal(role: str, username: str | None = None) -> Principal:
         display_name=role,
         email="",
         roles=frozenset({role}),
-        permissions=ROLES.resolve(frozenset({role}), mfa=False),
+        permissions=ROLES.resolve(frozenset({role}), mfa=True),
         kind="human",
-        mfa=False,
-        client_id="sentinel-dashboard",
+        mfa=True,
+        client_id="sentinel-admin",
         session_id=None,
     )
 
@@ -55,14 +52,13 @@ def _principal(role: str, username: str | None = None) -> Principal:
 def world(session: Session) -> Session:
     seed_feeds(session)
     seed_inventory(session)
-    sync_organization(session, collect(demo_sources(ROOT / "demo-lab" / "org")), actor="t")
+    seed_new_host(session)
     analyze(session, RULEBOOK)
-    evaluate_shadow(session, RULEBOOK.scoring)
     session.commit()
     return session
 
 
-def _ask(session: Session, question: str, role: str = "manager", **kwargs: object):  # type: ignore[no-untyped-def]
+def _ask(session: Session, question: str, role: str = "viewer", **kwargs: object):  # type: ignore[no-untyped-def]
     return ask(
         session,
         question,
@@ -70,7 +66,7 @@ def _ask(session: Session, question: str, role: str = "manager", **kwargs: objec
         config=CONFIG,
         classifier=kwargs.pop("classifier", KEYWORDS_ONLY),  # type: ignore[arg-type]
         today=TODAY,
-        **kwargs,  # type: ignore[arg-type]
+        **kwargs,
     )
 
 
@@ -78,7 +74,7 @@ def _ask(session: Session, question: str, role: str = "manager", **kwargs: objec
 
 
 def test_normalize_and_cve() -> None:
-    assert normalize("  Dział  Finansów ŁÓDŹ ") == "dzial finansow lodz"
+    assert normalize("  Sieć  Serwerów ŁÓDŹ ") == "siec serwerow lodz"
     assert find_cve("czy cve 2021 41773 nas dotyczy?") == "CVE-2021-41773"
     assert find_cve("brak numeru") is None
 
@@ -95,14 +91,14 @@ def test_best_match_short_names_need_whole_word() -> None:
         ("Co jest teraz najgroźniejsze?", "top_risks"),
         ("co mamy naprawić najpierw", "top_risks"),
         ("Ile mamy nieznanych urządzeń?", "devices"),
-        ("ile komputerow ma dzial finansow", "devices"),
+        ("ile hostow jest w inwentarzu", "devices"),
         ("Opowiedz o web-01", "device_story"),
         ("Co to jest KEV?", "explain"),
         ("co znaczy CVE-2021-41773", "explain"),
         ("Czy jesteśmy podatni na CVE-2021-41773?", "exposure_check"),
         ("czy uzywamy nginx", "exposure_check"),
         ("Do kiedy trzeba naprawić zagrożenia?", "deadlines"),
-        ("Poproś o skanowanie działu IT", "scan_request"),
+        ("Poproś o skanowanie całego zakresu", "scan_request"),
         ("Pokaż samouczek", "tour"),
         ("jak to dziala", "tour"),
         ("Wyłącz serwer web-01", "out_of_scope"),
@@ -110,12 +106,12 @@ def test_best_match_short_names_need_whole_word() -> None:
     ],
 )
 def test_keyword_intents(world: Session, question: str, intent: str) -> None:
-    found = classify_keywords(question, catalog(world, CONFIG, _principal("manager")))
+    found = classify_keywords(question, catalog(world, CONFIG, _principal("viewer")))
     assert found.name == intent, question
 
 
 def test_typos_and_missing_diacritics_still_match(world: Session) -> None:
-    names = catalog(world, CONFIG, _principal("manager"))
+    names = catalog(world, CONFIG, _principal("viewer"))
     assert classify_keywords("najgrozniejsze zagrozenia", names).name == "top_risks"
     assert classify_keywords("ile mamy nieznanyh urzadzen", names).name == "devices"
 
@@ -133,33 +129,20 @@ def test_top_risks_answer_comes_from_data(world: Session) -> None:
     assert answer.freshness
 
 
-def test_unknown_devices_answer(world: Session) -> None:
+def test_new_hosts_answer(world: Session) -> None:
     answer = _ask(world, "Ile mamy nieznanych urządzeń?")
     joined = " ".join(answer.text)
     assert "DESKTOP-7Q2KD1" in joined
-    assert "CMDB" in joined
-    assert answer.links == [{"label": "Nieznane urządzenia", "to": "/nieznane"}]
+    assert "nie było ich w inwentarzu" in joined
+    assert answer.links == [{"label": "Zasoby", "to": "/zasoby"}]
 
 
-def test_devices_in_unit_links_to_filtered_table(world: Session) -> None:
-    answer = _ask(world, "ile urządzeń ma dział finansów")
-    assert "w dziale Finansów" in answer.text[0]
-    assert answer.links[0]["to"].startswith("/urzadzenia?dzial=")
-
-
-def test_device_story_names_and_pseudonyms(world: Session) -> None:
-    named = _ask(world, "Opowiedz o web-01")
-    assert "Piotr Zieliński" in named.text[0]
-    assert named.links[0]["to"].startswith("/urzadzenia/")
-    hidden = _ask(world, "Opowiedz o web-01", pseudonyms=True)
-    assert "Zieliński" not in " ".join(hidden.text)
-    assert "Pracownik #" in hidden.text[0]
-    # Audytor nie ma personal_data:view: zawsze pseudonim.
-    auditor = _ask(world, "Opowiedz o web-01", role="auditor")
-    assert "Zieliński" not in " ".join(auditor.text)
-    views = world.scalars(select(AuditLog).where(AuditLog.action == "personal_data_viewed")).all()
-    assert len(views) == 1
-    assert "Zieliński" not in json.dumps(views[0].inputs, ensure_ascii=False)
+def test_device_story_links_to_host_card(world: Session) -> None:
+    story = _ask(world, "Opowiedz o web-01")
+    assert story.text[0].startswith("web-01 to")
+    assert story.links[0]["to"].startswith("/zasoby/")
+    new = _ask(world, "co się dzieje z DESKTOP-7Q2KD1?")
+    assert "To nowy host" in " ".join(new.text)
 
 
 def test_explain_term_and_cve(world: Session) -> None:
@@ -186,16 +169,16 @@ def test_deadlines_are_internal_not_legal(world: Session) -> None:
     assert "Terminów ustawowych tu nie podaję" in joined
 
 
-def test_scan_request_is_only_proposed(world: Session) -> None:
-    answer = _ask(world, "Poproś o skanowanie działu IT")
+def test_scan_request_is_only_proposed_as_agent_task(world: Session) -> None:
+    answer = _ask(world, "zeskanuj web-01", role="editor")
     assert answer.action is not None
-    assert answer.action["kind"] == "scan_request"
-    assert answer.action["scope_kind"] == "unit"
+    assert answer.action["kind"] == "agent_task"
+    assert "web-01" in answer.action["command"]
     assert "Sam nie skanuję" in answer.text[1]
-    # Audytor nie ma scan:request.
-    denied = _ask(world, "Poproś o skanowanie działu IT", role="auditor")
+    # Odczyt (viewer) nie zleca zadań agentowi.
+    denied = _ask(world, "zeskanuj web-01", role="viewer")
     assert denied.action is None
-    assert "scan:request" in denied.text[1]
+    assert "agent:task" in denied.text[1]
 
 
 def test_action_requests_are_refused(world: Session) -> None:
@@ -252,7 +235,6 @@ def api_world(session_factory: sessionmaker[Session]) -> None:
     with session_factory() as session:
         seed_feeds(session)
         seed_inventory(session)
-        sync_organization(session, collect(demo_sources(ROOT / "demo-lab" / "org")), actor="t")
         analyze(session, RULEBOOK)
         session.commit()
 
@@ -266,7 +248,7 @@ def test_api_answers_and_audits_without_question_text(
     anon_client: TestClient, tokens: TokenFactory, session_factory: sessionmaker[Session]
 ) -> None:
     _keywords_only(anon_client)
-    headers = tokens.headers(["manager"], username="manager-1")
+    headers = tokens.headers(["viewer"], username="viewer-1")
     response = anon_client.post(
         "/api/assistant", headers=headers, json={"question": "Opowiedz o web-01, pilne!"}
     )
@@ -274,8 +256,6 @@ def test_api_answers_and_audits_without_question_text(
     body = response.json()
     assert body["intent"] == "device_story"
     assert body["disclaimer"].startswith("Sentek pomaga czytać dane")
-    # Menedżer nie widzi adresów IP także w odpowiedziach asystenta.
-    assert "172.30.99" not in json.dumps(body)
     with session_factory() as session:
         entry = session.scalar(select(AuditLog).where(AuditLog.action == "assistant_asked"))
         assert entry is not None
@@ -298,7 +278,7 @@ def test_api_requires_permission_and_limits_length(
     )
     long = anon_client.post(
         "/api/assistant",
-        headers=tokens.headers(["manager"]),
+        headers=tokens.headers(["viewer"]),
         json={"question": "x" * 501},
     )
     assert long.status_code == 422
@@ -317,7 +297,7 @@ def test_eval_cases_with_keywords_only(world: Session) -> None:
             case,
             classifier=KEYWORDS_ONLY,
             config=CONFIG,
-            principal=_principal("manager"),
+            principal=_principal("editor"),
             today=TODAY,
         )
         for case in cases
@@ -328,5 +308,5 @@ def test_eval_cases_with_keywords_only(world: Session) -> None:
 
 
 def test_changed_is_not_a_change_request(world: Session) -> None:
-    names = catalog(world, CONFIG, _principal("manager"))
+    names = catalog(world, CONFIG, _principal("viewer"))
     assert classify_keywords("co się zmieniło w zagrożeniach?", names).name == "top_risks"

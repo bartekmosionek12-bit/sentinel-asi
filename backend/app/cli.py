@@ -11,7 +11,7 @@ import json
 import sys
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,10 +27,7 @@ from app.feeds.service import FEEDS, sync_all
 from app.iam.rbac import RoleCatalog
 from app.iam.sync import sync_catalog
 from app.inventory.service import import_assets, parse_assets_csv
-from app.models import CoverageSnapshot, Report
-from app.org.coverage import as_view, record_snapshot
-from app.org.sources import collect, demo_sources
-from app.org.sync import sync_organization
+from app.models import Report
 from app.pipeline import analyze
 from app.reports.delivery import create_digest, email_report
 from app.reports.service import create_report
@@ -69,28 +66,6 @@ def cmd_import_assets(session: Session, path: Path) -> dict[str, Any]:
         "unchanged": result.unchanged,
         "errors": errors,
     }
-
-
-def cmd_sync_org(session: Session, settings: Settings, *, actor: str = "cli") -> dict[str, Any]:
-    """Synchronizacja organizacji z atrap AD, MDM, CMDB i DHCP (tylko DEMO_MODE)."""
-    if not settings.demo_mode:
-        raise CliError(
-            "sync-org czyta atrapy z fikcyjną organizacją i działa tylko przy DEMO_MODE=true. "
-            "Prawdziwe konektory AD/Entra, MDM i CMDB są w ROADMAP."
-        )
-    snapshot = collect(demo_sources(settings.demo_org_dir))
-    result = sync_organization(session, snapshot, actor=actor)
-    analysis = analyze(session, get_rulebook(), channel_sender())
-    coverage = record_snapshot(session)
-    return {
-        "sync": result.summary(),
-        "unknown_devices_new": analysis.summary()["unknown_devices_new"],
-        "coverage": as_view(coverage),
-    }
-
-
-def cmd_coverage(session: Session) -> dict[str, Any]:
-    return as_view(record_snapshot(session))
 
 
 def cmd_sync_feeds(session: Session, settings: Settings, directory: Path | None) -> dict[str, Any]:
@@ -218,7 +193,6 @@ def cmd_seed_demo(session: Session, settings: Settings) -> dict[str, Any]:
         ),
     )
     assets = cmd_import_assets(session, settings.demo_assets_file)
-    org = cmd_sync_org(session, settings, actor="seed_demo")
     session.commit()
     has_snapshots = (settings.feeds_dir / "nvd.json").is_file()
     feeds_dir = settings.feeds_dir if has_snapshots else settings.demo_feeds_dir
@@ -226,63 +200,16 @@ def cmd_seed_demo(session: Session, settings: Settings) -> dict[str, Any]:
     session.commit()
     run = service.run(trigger="seed_demo", actor="seed_demo")
     report = create_report(session, get_reports_config(), kind="assessment", actor="seed_demo")
-    coverage = record_snapshot(session)
-    seed_coverage_history(session, coverage)
     session.commit()
     _queue_summary(settings, report.id, "seed_demo")
     return {
         "report": {"id": str(report.id), "light": report.light, "title": report.title},
         "assets": assets,
-        "organization": org["sync"],
-        "coverage": as_view(coverage),
         "feeds_source": "pobrane snapshoty" if has_snapshots else "miniaturowy zestaw demo",
         "feeds": feeds.results,
         "l2_approval": "seed_demo" if approval_active else "wymaga człowieka",
         "scan": run.summary,
     }
-
-
-DEMO_HISTORY_DAYS = 6
-
-
-def seed_coverage_history(session: Session, today: CoverageSnapshot) -> int:
-    """Tylko DEMO_MODE: historia pokrycia z 6 dni przed seedem, żeby wykres trendu miał punkty.
-
-    Wartości są wyprowadzone z dzisiejszego pomiaru (rosnące pokrycie właścicieli, te same
-    liczby urządzeń), a cały tryb demo ma etykietę „dane demonstracyjne”. Nie nadpisuje
-    istniejących dni.
-    """
-    created = 0
-    for back in range(DEMO_HISTORY_DAYS, 0, -1):
-        day = today.day - timedelta(days=back)
-        if session.scalar(select(CoverageSnapshot.id).where(CoverageSnapshot.day == day)):
-            continue
-        factor = 1 - 0.06 * back
-        session.add(
-            CoverageSnapshot(
-                day=day,
-                assets_total=today.assets_total,
-                with_owner=int(today.with_owner * factor),
-                scanned_recently=int(today.scanned_recently * max(0.0, factor - 0.2)),
-                known_version=int(today.known_version * max(0.0, factor - 0.2)),
-                unknown_devices=today.unknown_devices + (1 if back > 3 else 0),
-                open_findings=today.open_findings,
-                critical_findings=today.critical_findings,
-            )
-        )
-        created += 1
-    if created:
-        audit.record(
-            session,
-            audit.AuditEvent(
-                actor="seed_demo",
-                action="demo_coverage_history",
-                reason=f"Demo: historia pokrycia z {created} dni (dane demonstracyjne)",
-                inputs={"days": created},
-                object_type="inventory",
-            ),
-        )
-    return created
 
 
 DEMO_AGENT_NOTE = "Demo-lab: assessment agenta (seed_demo)"
@@ -418,16 +345,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands.add_parser(
         "agent-bootstrap", help="zdolności agenta dla demo-lab i test agenta (tylko DEMO_MODE)"
     )
-    commands.add_parser(
-        "sync-org", help="organizacja z atrap AD, MDM, CMDB, DHCP (tylko DEMO_MODE=true)"
-    )
-    commands.add_parser("coverage", help="dzisiejszy pomiar pokrycia inwentarza")
     commands.add_parser("sync-roles", help="kopia rules/roles.yaml w bazie (po migracjach)")
-    commands.add_parser("report", help="raport o otwartych zagrożeniach do skrzynek menedżerów")
-    commands.add_parser("digest", help="digest z powiadomień czekających (wersja menedżera)")
-    commands.add_parser(
-        "email-report", help="e-mail z raportem i PDF w wersji menedżera"
-    ).add_argument("report_id")
+    commands.add_parser("report", help="raport o otwartych zagrożeniach")
+    commands.add_parser("digest", help="digest z powiadomień czekających")
+    commands.add_parser("email-report", help="e-mail z raportem i PDF").add_argument("report_id")
     commands.add_parser(
         "inject-kev", help="scenariusz zero-day: syntetyczny wpis KEV (tylko DEMO_MODE=true)"
     ).add_argument("cve_id")
@@ -457,10 +378,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result = cmd_email_report(session, args.report_id)
             elif args.command == "inject-kev":
                 result = cmd_inject_kev(session, settings, args.cve_id)
-            elif args.command == "sync-org":
-                result = cmd_sync_org(session, settings)
-            elif args.command == "coverage":
-                result = cmd_coverage(session)
             elif args.command == "agent-bootstrap":
                 result = cmd_agent_bootstrap(session, settings)
             elif args.command == "sync-roles":

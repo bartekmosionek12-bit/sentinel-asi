@@ -250,7 +250,7 @@ def resolve_tokens(text: str, entities: Mapping[str, Mapping[str, Any]], *, pers
 
 
 def present(report: Report, *, personal: bool) -> dict[str, Any]:
-    """Raport z nazwami zamiast tokenów. Bez `personal_data:view` osoby są ukryte."""
+    """Raport z nazwami zamiast tokenów. `personal=False` ukrywa nazwy osób (np. w e-mailu)."""
     entities = report.entities
 
     def names(value: Any) -> Any:

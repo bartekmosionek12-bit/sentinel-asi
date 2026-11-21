@@ -6,7 +6,8 @@ po uwierzytelnieniu wieloskładnikowym. Wszystko, czego nie ma w pliku, jest zab
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,11 @@ import yaml
 
 PrincipalKind = str  # "human", "agent", "system"
 KINDS = ("human", "agent", "system")
+# Uprawnień z tej listy nie da się włożyć do roli własnej: zarządzanie tożsamością zostaje
+# wyłącznie przy roli `administrator` z pliku (brak eskalacji przez edytor ról).
+RESERVED_PERMISSIONS = frozenset({"iam:manage"})
+# Role z pliku, które administrator może nadać w konsoli. `administrator` nadaje tylko Keycloak.
+GRANTABLE_BUILTIN_ROLES = ("editor", "modifier", "viewer")
 
 
 class RbacConfigError(ValueError):
@@ -92,6 +98,22 @@ class RoleCatalog:
         if not mfa:
             granted -= self._mfa
         return frozenset(granted)
+
+    def with_custom(self, custom: Iterable[tuple[str, str, Iterable[str]]]) -> RoleCatalog:
+        """Katalog z rolami własnymi (nazwa, opis, uprawnienia) dołożonymi do ról z pliku.
+
+        Rola własna nie nadpisuje roli z pliku, jest zawsze rodzaju `human`, a nieznane i
+        zastrzeżone uprawnienia są pomijane (deny-by-default także przy złym wierszu w bazie).
+        """
+        roles = dict(self.roles)
+        for name, description, permissions in custom:
+            if name in self.roles:
+                continue
+            granted = frozenset(
+                p for p in permissions if p in self.permissions and p not in RESERVED_PERMISSIONS
+            )
+            roles[name] = Role(name, description, "human", granted)
+        return replace(self, roles=roles)
 
     def requires_mfa(self, permission: str) -> bool:
         return permission in self._mfa

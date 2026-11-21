@@ -711,97 +711,7 @@ export interface CredentialLease {
 }
 
 
-// --- organizacja (Etap 6, #18) ---
-
-export interface Coverage {
-  day: string;
-  assets_total: number;
-  unknown_devices: number;
-  open_findings: number;
-  critical_findings: number;
-  with_owner_pct: number;
-  scanned_recently_pct: number;
-  known_version_pct: number;
-}
-
-export interface OrgUnitSummary {
-  id: string;
-  name: string;
-  parent_id: string | null;
-  devices: number;
-  unknown: number;
-  open_findings: number;
-  critical: number;
-  worst_level: RiskLevel | null;
-}
-
-export interface OrgOverview {
-  demo: boolean;
-  demo_label: string | null;
-  units: OrgUnitSummary[];
-  locations: { id: string; name: string; devices: number }[];
-  coverage: Coverage;
-  trend: Coverage[];
-  unassigned_devices: number;
-}
-
-export interface OrgPerson {
-  id: string;
-  pseudonym: string;
-  display_name: string;
-  job_title: string | null;
-  active: boolean;
-  left_at: string | null;
-}
-
-export interface OrgPeopleRow extends OrgPerson {
-  unit: string | null;
-  devices: number;
-}
-
-export interface Device {
-  id: string;
-  name: string;
-  type: string;
-  status: "active" | "missing" | "retired" | "shadow";
-  exposure: Exposure;
-  criticality: number;
-  unit: string | null;
-  unit_id: string | null;
-  location: string | null;
-  segment: string | null;
-  owners: OrgPerson[];
-  users: OrgPerson[];
-  sources: string[];
-  in_cmdb: boolean;
-  confirmed: boolean;
-  open_findings: number;
-  worst_level: RiskLevel | null;
-  max_score: number;
-  first_seen: string;
-  last_seen: string;
-  last_scan: string | null;
-}
-
-export interface DeviceList {
-  items: Device[];
-  total: number;
-  demo_label: string | null;
-}
-
-export interface DeviceFilter {
-  unit?: string;
-  unknown?: boolean;
-  pseudonyms?: boolean;
-}
-
-function query(params: Record<string, string | boolean | undefined>): string {
-  const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== false);
-  if (!entries.length) return "";
-  return "?" + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
-}
-
-// --- moduł 21: świeżość danych, „Aktualny obraz”, prośby o skanowanie ---
+// --- świeżość danych i asystent Sentek ---
 
 export interface Freshness {
   last_scan_at: string | null;
@@ -812,13 +722,11 @@ export interface Freshness {
   label: string;
 }
 
-export type ScanRequestScope = "organization" | "unit" | "device";
-
-/** Odpowiedź Sentka (moduł 21): tekst z danych, linki i ewentualna propozycja akcji. */
+/** Odpowiedź Sentka: tekst z danych, linki i ewentualna propozycja zadania dla agenta.
+ *  Sentek niczego nie uruchamia: zadanie trafia do agenta, a plan zatwierdza człowiek. */
 export interface AssistantAction {
-  kind: "scan_request" | "tour";
-  scope_kind?: ScanRequestScope;
-  scope_ref?: string | null;
+  kind: "agent_task";
+  command?: string;
   label?: string;
 }
 
@@ -834,19 +742,56 @@ export interface AssistantAnswer {
   disclaimer: string;
 }
 
-export interface ScanRequest {
+// --- szczegóły zasobu (karta hosta) ---
+
+export interface AssetHistory {
   id: string;
-  requested_by: string;
-  scope_kind: ScanRequestScope;
-  scope_label: string;
-  reason: string;
-  status: "pending" | "approved" | "rejected" | "done" | "failed";
-  decided_by: string | null;
-  decision_reason: string | null;
-  decided_at: string | null;
-  scan_run_id: string | null;
+  change: string;
+  diff: Record<string, unknown>;
   created_at: string;
-  finished_at: string | null;
+}
+
+export interface AssetDetail {
+  asset: Asset;
+  attributes: Record<string, unknown>;
+  software: Software[];
+  history: AssetHistory[];
+  active_findings: number;
+}
+
+// --- role i użytkownicy (P1, docs/ROLES.md) ---
+
+export interface IamPermission {
+  name: string;
+  description: string;
+  mfa: boolean;
+  /** Tylko w rolach z pliku (np. `iam:manage`); edytor ról go nie nadaje. */
+  reserved: boolean;
+}
+
+export interface IamRole {
+  name: string;
+  label: string;
+  description: string;
+  kind: "human" | "agent" | "system";
+  builtin: boolean;
+  grantable: boolean;
+  permissions: string[];
+  created_by: string | null;
+  updated_at: string | null;
+}
+
+export interface IamUser {
+  id: string;
+  username: string;
+  display_name: string;
+  kind: "human" | "agent" | "system";
+  active: boolean;
+  /** Role z tokenu Keycloak (nadawane w Keycloak, tu tylko do odczytu). */
+  token_roles: string[];
+  /** Role nadane w konsoli. */
+  granted_roles: string[];
+  last_seen_at: string | null;
 }
 
 export const api = {
@@ -867,7 +812,8 @@ export const api = {
     }),
   stats: () => request<Stats>("/stats"),
   findings: (status: string) => request<Page<Finding>>(`/findings?status=${status}&limit=500`),
-  deviceFindings: (assetId: string) =>
+  assetDetails: (id: string) => request<AssetDetail>(`/assets/${id}/details`),
+  assetFindings: (assetId: string) =>
     request<Page<Finding>>(`/findings?status=active&asset_id=${assetId}&limit=100`),
   finding: (id: string) => request<FindingDetail>(`/findings/${id}`),
   updateFinding: (id: string, patch: FindingPatch) =>
@@ -930,32 +876,12 @@ export const api = {
   inbox: () => request<Inbox>("/inbox"),
   downloadReportPdf: (id: string) => download(`/reports/${id}/pdf`, "raport.pdf"),
   markReportRead: (id: string) => request<void>(`/reports/${id}/read`, { method: "POST" }),
-  orgOverview: () => request<OrgOverview>("/org/overview"),
   freshness: () => request<Freshness>("/freshness"),
-  currentReport: () => request<Report>("/reports/current", { method: "POST" }),
-  scanRequests: (status?: string) =>
-    request<ScanRequest[]>(`/scan-requests${status ? `?status=${status}` : ""}`),
-  requestScan: (scope_kind: ScanRequestScope, scope_ref: string | null, reason: string) =>
-    request<ScanRequest>("/scan-requests", {
-      method: "POST",
-      body: JSON.stringify({ scope_kind, scope_ref, reason }),
-    }),
-  assistant: (question: string, pseudonyms = false) =>
+  assistant: (question: string) =>
     request<AssistantAnswer>("/assistant", {
       method: "POST",
-      body: JSON.stringify({ question, pseudonyms }),
+      body: JSON.stringify({ question }),
     }),
-  decideScanRequest: (id: string, approve: boolean, reason: string) =>
-    request<ScanRequest>(`/scan-requests/${id}/decision`, {
-      method: "POST",
-      body: JSON.stringify({ approve, reason }),
-    }),
-  devices: (filter: DeviceFilter = {}) =>
-    request<DeviceList>(`/org/devices${query({ ...filter })}`),
-  device: (id: string, pseudonyms = false) =>
-    request<Device>(`/org/devices/${id}${query({ pseudonyms })}`),
-  people: (pseudonyms = false) => request<OrgPeopleRow[]>(`/org/people${query({ pseudonyms })}`),
-  confirmDevice: (id: string) => request<Device>(`/org/devices/${id}/confirm`, { method: "POST" }),
   createReport: () => request<Report>("/reports", { method: "POST" }),
   requestReportSummary: (id: string) =>
     request<{ task_id: string }>(`/reports/${id}/summary`, { method: "POST" }),
@@ -998,5 +924,24 @@ export const api = {
     request<AgentConfig>(`/agent/configs/${id}/force`, {
       method: "POST",
       body: JSON.stringify({ justification }),
+    }),
+  iamPermissions: () => request<IamPermission[]>("/iam/permissions"),
+  iamRoles: () => request<IamRole[]>("/iam/roles"),
+  iamUsers: () => request<IamUser[]>("/iam/users"),
+  saveRole: (name: string, input: { description: string; permissions: string[] }) =>
+    request<IamRole>(`/iam/roles/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  deleteRole: (name: string) =>
+    request<void>(`/iam/roles/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  grantRole: (userId: string, role: string) =>
+    request<IamUser>(`/iam/users/${userId}/roles`, {
+      method: "POST",
+      body: JSON.stringify({ role }),
+    }),
+  revokeRole: (userId: string, role: string) =>
+    request<IamUser>(`/iam/users/${userId}/roles/${encodeURIComponent(role)}`, {
+      method: "DELETE",
     }),
 };

@@ -1,9 +1,9 @@
 import {
   Bot,
-  ClipboardCheck,
   Crosshair,
   FileText,
   FlaskConical,
+  Inbox,
   LayoutDashboard,
   ListChecks,
   Network,
@@ -12,6 +12,7 @@ import {
   ScrollText,
   Server,
   ShieldAlert,
+  UserCog,
 } from "lucide-react";
 
 import type { NavGroup } from "@shared/components/AppShell";
@@ -21,18 +22,21 @@ export const NAV_GROUPS: NavGroup[] = [
     title: "Przegląd",
     items: [
       { path: "/", label: "Pulpit", icon: LayoutDashboard },
+      { path: "/skrzynka", label: "Skrzynka", icon: Inbox, permission: "reports:read" },
       {
         path: "/raporty",
         label: "Raporty",
         icon: FileText,
-        summary: "Raporty dwuwarstwowe wysyłane do skrzynek menedżerów: ocena stanu i zero-day.",
+        permission: "reports:read",
+        summary: "Raporty dwuwarstwowe: „W skrócie” dla kierownictwa i szczegóły techniczne dla zespołu IT.",
       },
       {
         path: "/mapa",
         label: "Mapa powierzchni ataku",
         icon: Network,
-        stage: 5,
-        summary: "Interaktywny graf zasobów i relacji między nimi, kolorowany poziomem ryzyka.",
+        stage: 10,
+        summary:
+          "Widok sieci i segmentów: zasoby pogrupowane według podsieci, kolorowane poziomem ryzyka.",
       },
     ],
   },
@@ -46,13 +50,6 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: ShieldAlert,
         summary:
           "Lista zagrożeń przypisanych do konkretnych zasobów, ze statusem, właścicielem i rozbiciem oceny ryzyka.",
-      },
-      {
-        path: "/zgodnosc",
-        label: "Zgodność",
-        icon: ClipboardCheck,
-        stage: 7,
-        summary: "Wynik zgodności dla CIS, NIS2 i ISO 27001 z listą luk i instrukcją naprawy.",
       },
       {
         path: "/feed",
@@ -77,7 +74,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: "/zakres", label: "Zakres skanowania", icon: Crosshair },
       { path: "/agent", label: "Agent AI", icon: Bot, end: true },
       { path: "/agent/test", label: "Test agenta", icon: FlaskConical },
-      { path: "/audyt", label: "Dziennik audytu", icon: ScrollText },
+      { path: "/audyt", label: "Dziennik audytu", icon: ScrollText, permission: "audit:read" },
+      { path: "/role", label: "Role i użytkownicy", icon: UserCog, permission: "iam:read" },
     ],
   },
 ];

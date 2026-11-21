@@ -1,7 +1,6 @@
 @import "tailwindcss";
-/* Klasy z obu konsol i z kodu wspólnego (Tailwind skanuje te katalogi). */
+/* Klasy z konsoli i z kodu wspólnego (Tailwind skanuje te katalogi). */
 @source "../../admin/src";
-@source "../../dashboard/src";
 @source "./";
 
 @theme {
@@ -25,71 +24,4 @@
 
 body {
   @apply bg-background text-foreground antialiased;
-}
-
-/* Samouczek (driver.js): czcionka i kolory konsoli, czytelny kontrast. */
-.driver-popover.sentinel-tour {
-  font-family: inherit;
-  max-width: 340px;
-}
-.driver-popover.sentinel-tour .driver-popover-title {
-  font-size: 1rem;
-  font-weight: 600;
-}
-.driver-popover.sentinel-tour .driver-popover-description {
-  font-size: 0.875rem;
-  line-height: 1.45;
-}
-
-/* Sentek (moduł 21): oddychanie, mruganie, mówienie, machanie. Bez ruchu przy reduced-motion. */
-.sentek-animated .sentek-body {
-  animation: sentek-bob 3.2s ease-in-out infinite;
-  transform-box: view-box;
-  transform-origin: 60px 130px;
-}
-.sentek-animated .sentek-eyes {
-  animation: sentek-blink 4.5s infinite;
-  transform-box: view-box;
-  transform-origin: 60px 51px;
-}
-.sentek-animated .sentek-mouth {
-  animation: sentek-talk 0.32s ease-in-out infinite alternate;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-.sentek-animated .sentek-wave {
-  animation: sentek-wave 0.9s ease-in-out infinite alternate;
-  transform-origin: 0 0;
-}
-.sentek-animated .sentek-light {
-  animation: sentek-light 2.4s ease-in-out infinite;
-}
-@keyframes sentek-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2.5px); }
-}
-@keyframes sentek-blink {
-  0%, 92%, 100% { transform: scaleY(1); }
-  95% { transform: scaleY(0.1); }
-}
-@keyframes sentek-talk {
-  from { transform: scaleY(0.35); }
-  to { transform: scaleY(1.1); }
-}
-@keyframes sentek-wave {
-  from { transform: rotate(-14deg); }
-  to { transform: rotate(14deg); }
-}
-@keyframes sentek-light {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .sentek-animated .sentek-body,
-  .sentek-animated .sentek-eyes,
-  .sentek-animated .sentek-mouth,
-  .sentek-animated .sentek-wave,
-  .sentek-animated .sentek-light {
-    animation: none;
-  }
 }

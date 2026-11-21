@@ -73,14 +73,12 @@ def test_assessment_report_light_facts_and_template(analyzed: Session) -> None:
     assert rows[0]["cve_id"] in {"CVE-2021-41773", "CVE-2021-42013"}
 
 
-def test_report_is_delivered_to_manager_inbox_and_audited(analyzed: Session) -> None:
+def test_report_is_delivered_to_role_inboxes_and_audited(analyzed: Session) -> None:
     report = _report(analyzed)
-    delivery = analyzed.scalars(select(ReportDelivery)).one()
-    assert (delivery.report_id, delivery.recipient_role, delivery.channel) == (
-        report.id,
-        "manager",
-        "inbox",
-    )
+    deliveries = analyzed.scalars(select(ReportDelivery)).all()
+    assert {(d.report_id, d.recipient_role, d.channel) for d in deliveries} == {
+        (report.id, role, "inbox") for role in ("administrator", "editor", "modifier", "viewer")
+    }
     note = analyzed.scalars(select(Notification).where(Notification.report_id == report.id)).one()
     assert note.channel == "in_app"
     assert note.status == "sent"
@@ -89,7 +87,7 @@ def test_report_is_delivered_to_manager_inbox_and_audited(analyzed: Session) -> 
     assert entry.inputs["light"] == "red"
 
 
-def test_presentation_resolves_tokens_and_hides_people_without_permission(
+def test_presentation_resolves_tokens_and_can_hide_people(
     analyzed: Session,
 ) -> None:
     report = _report(analyzed)

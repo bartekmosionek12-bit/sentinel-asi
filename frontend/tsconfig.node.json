@@ -11,5 +11,5 @@
     "types": ["node"],
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo"
   },
-  "include": ["vite.shared.ts", "admin/vite.config.ts", "dashboard/vite.config.ts"]
+  "include": ["vite.shared.ts", "admin/vite.config.ts"]
 }

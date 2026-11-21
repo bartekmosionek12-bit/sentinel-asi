@@ -28,7 +28,6 @@ def get_assistant_classifier() -> ModelClassifier:
 
 class Question(BaseModel):
     question: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
-    pseudonyms: bool = False
 
 
 class Link(BaseModel):
@@ -64,7 +63,6 @@ def assistant(
         config=config,
         classifier=classifier,
         today=utcnow().date(),
-        pseudonyms=payload.pseudonyms,
     )
     session.commit()
     return AnswerOut(

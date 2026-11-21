@@ -1,4 +1,4 @@
-"""Ścieżka analizy: produkty → CPE → findingi → shadow IT → ocena ryzyka → powiadomienia.
+"""Ścieżka analizy: produkty → CPE → findingi → ocena ryzyka → powiadomienia.
 
 Uruchamiana po każdym skanie, synchronizacji feedów i decyzji w kolejce weryfikacji.
 Cała konfiguracja decyzji pochodzi z plików w `rules/`.
@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from app.matching.cpe import CpeEntry, MatchingConfig, load_aliases
 from app.matching.engine import (
-    FindingChange,
     MatchReport,
     ProductReport,
     build_normalizer,
@@ -24,7 +23,6 @@ from app.matching.signals import SignalReport, match_signals
 from app.models import Notification
 from app.notifications.channels import Sender
 from app.notifications.engine import NotificationConfig, notify
-from app.org.shadow import evaluate_shadow
 from app.planner.engine import ScanPlanner
 from app.scoring.engine import ScoringConfig
 
@@ -54,7 +52,6 @@ class AnalysisReport:
     findings: MatchReport = field(default_factory=MatchReport)
     notifications: list[Notification] = field(default_factory=list)
     signals: SignalReport = field(default_factory=SignalReport)
-    shadow: list[FindingChange] = field(default_factory=list)
 
     def summary(self) -> dict[str, int]:
         return {
@@ -68,7 +65,6 @@ class AnalysisReport:
             "versions_undetermined": self.findings.undetermined,
             "notifications": len(self.notifications),
             "signals_created": self.signals.created,
-            "unknown_devices_new": sum(1 for c in self.shadow if c.kind != "resolved"),
         }
 
 
@@ -77,8 +73,5 @@ def analyze(session: Session, rulebook: Rulebook, sender: Sender | None = None) 
     products = resolve_products(session, normalizer, rulebook.matching)
     findings = evaluate_findings(session, rulebook.scoring)
     signals = match_signals(session, normalizer, rulebook.matching)
-    # Shadow IT (#18): urządzenia widziane tylko przez sieć, nieznane CMDB, AD i MDM.
-    shadow = evaluate_shadow(session, rulebook.scoring)
-    changes = findings.changes + shadow
-    notifications = notify(session, changes, rulebook.notifications, sender)
-    return AnalysisReport(products, findings, notifications, signals, shadow)
+    notifications = notify(session, findings.changes, rulebook.notifications, sender)
+    return AnalysisReport(products, findings, notifications, signals)

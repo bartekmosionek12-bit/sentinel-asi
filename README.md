@@ -13,8 +13,9 @@ wyników na ludzki język.
 > HTTP, sygnaturami, porównaniem przebiegów, czterema rolami, szyfrowaniem w spoczynku i
 > DefectDojo. Stan wymagań: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md); plan etapów P0–P12:
 > [docs/ROADMAP.md](docs/ROADMAP.md); co usuwamy i co zostaje:
-> [docs/ARCHITECTURE.md, sekcja 0](docs/ARCHITECTURE.md#0-zmiana-kierunku-brief-agh). Opis
-> poniżej dotyczy stanu sprzed zmiany i zostanie przepisany w kolejnych etapach.
+> [docs/ARCHITECTURE.md, sekcja 0](docs/ARCHITECTURE.md#0-zmiana-kierunku-brief-agh). Od P1
+> jest jedna konsola zespołu IT i cztery role z briefu ([docs/ROLES.md](docs/ROLES.md));
+> pozostałe sekcje poniżej przepisujemy w kolejnych etapach.
 
 ## Uruchomienie
 
@@ -23,8 +24,8 @@ cp .env.example .env        # ustaw POSTGRES_PASSWORD i KEYCLOAK_ADMIN_PASSWORD
 docker compose up --build
 ```
 
-Konsola operacyjna (admin): <http://localhost:8080/admin/>. Dashboard menedżera:
-<http://localhost:8080/dashboard/>. Dokumentacja API: <http://localhost:8080/api/docs>.
+Konsola zespołu IT: <http://localhost:8080/admin/> (`/` przekierowuje tutaj). Dokumentacja
+API: <http://localhost:8080/api/docs>.
 Po takim starcie zakres skanowania jest pusty, system niczego nie skanuje i nie ma kont
 użytkowników (patrz [Logowanie i role](#logowanie-i-role)).
 
@@ -37,17 +38,20 @@ użytkowników (patrz [Logowanie i role](#logowanie-i-role)).
 
 Skrypt uruchamia stos razem z celowo podatnym [demo-lab](demo-lab/README.md), importuje
 fikcyjny inwentarz, wczytuje feedy ze snapshotów, skanuje sieć demo-lab i liczy ryzyko.
-Trwa około minuty po zbudowaniu obrazów. Na końcu zakłada w Keycloaku trzy fikcyjne konta
-demo i wypisuje ich hasła oraz sekret TOTP admina (zapisane też w
-`data/demo-credentials.env`, poza Gitem):
+Trwa około minuty po zbudowaniu obrazów. Na końcu zakłada w Keycloaku cztery fikcyjne
+konta demo, po jednym na rolę z briefu, i wypisuje ich hasła oraz wspólny sekret TOTP
+(zapisane też w `data/demo-credentials.env`, poza Gitem). Wszystkie logują się do `/admin/`
+hasłem i kodem TOTP: dodaj sekret z wypisanego `otpauth://` do aplikacji uwierzytelniającej.
 
-| Konto | Gdzie | Logowanie |
+| Konto | Rola | Co może |
 |---|---|---|
-| `admin` (Anna Demonstracyjna) | `/admin/` | hasło + kod TOTP: dodaj sekret z wypisanego `otpauth://` do aplikacji uwierzytelniającej |
-| `manager` (Marek Demonstracyjny) | `/dashboard/` | hasło; dane techniczne i osobowe zredagowane, `/admin/` kończy się odmową zapisaną w audycie |
-| `auditor` (Alicja Demonstracyjna) | `/dashboard/` | hasło; odczyt i dziennik audytu |
+| `admin` | Administracja (`administrator`) | wszystko, w tym role i użytkownicy, zakres, integracje, zdolności agenta, audyt |
+| `editor` | Dodawanie, usuwanie, modyfikacja (`editor`) | cele, skany, statusy, raporty, zadania agenta i zatwierdzanie akcji L2/L3 |
+| `modifier` | Modyfikacja i odczyt (`modifier`) | zmiana statusów i decyzje w kolejce weryfikacji, bez dodawania i skanowania |
+| `viewer` | Odczyt (`viewer`) | odczyt i eksport; próba skanu kończy się 403 z wpisem w audycie |
 
-W konsoli operacyjnej (`admin`) zobaczysz:
+Pełna macierz rola × uprawnienie × endpoint: [docs/ROLES.md](docs/ROLES.md). W konsoli
+(`admin`) zobaczysz:
 
 | Widok | Co pokazuje |
 |---|---|
@@ -62,14 +66,14 @@ W konsoli operacyjnej (`admin`) zobaczysz:
 `DEMO_APPROVAL_EXPIRES_AT=1970-01-01T00:00:00Z ./scripts/seed_demo.sh`. Skan L2 pojawi się
 wtedy w widoku Skany jako „Czeka na zgodę”.
 
-### Raport dla menedżera i scenariusz zero-day
+### Raporty i scenariusz zero-day
 
-Po `seed_demo` w skrzynce menedżera (`/dashboard/`, konto `manager`) czeka raport o stanie
-z czerwonym światłem. Warstwa „W skrócie” odpowiada na pięć pytań (Co się stało? Czy jesteśmy
-zagrożeni? Co najgorszego może się stać? Co trzeba zrobić? Kto i do kiedy?) prostym językiem,
-z podpowiedzią przy każdym terminie ze słownika; „Szczegóły techniczne” są zwinięte. Światło i
-fakty liczy kod, a model tylko formułuje zdania w tle: raport jest w skrzynce od razu, z
-odpowiedziami z szablonu, i zostaje przy nich, jeśli tekst modelu nie przejdzie walidacji.
+Po `seed_demo` w Skrzynce (`/admin/skrzynka`) czeka raport o stanie z czerwonym światłem.
+Warstwa „W skrócie” odpowiada na pięć pytań (Co się stało? Czy jesteśmy zagrożeni? Co
+najgorszego może się stać? Co trzeba zrobić? Kto i do kiedy?) prostym językiem, z podpowiedzią
+przy każdym terminie ze słownika; „Szczegóły techniczne” są zwinięte. Światło i fakty liczy
+kod, a model tylko formułuje zdania w tle: raport jest w skrzynce od razu, z odpowiedziami z
+szablonu, i zostaje przy nich, jeśli tekst modelu nie przejdzie walidacji.
 
 Scenariusz zero-day na prezentacji (tylko `DEMO_MODE=true`):
 
@@ -78,12 +82,11 @@ Scenariusz zero-day na prezentacji (tylko `DEMO_MODE=true`):
 ```
 
 Wpis przechodzi tą samą ścieżką co prawdziwy feed KEV: dopasowanie, ocena ryzyka,
-powiadomienie i raport „zero-day” w skrzynce menedżera, bez modelu językowego. Skrypt wypisuje
-czasy kolejnych kroków (lokalnie około 50 ms, CI pilnuje progu 5 s). W konsoli menedżera
-pojawia się czerwony baner z linkiem do raportu i znika po jego przeczytaniu. W dzienniku
-audytu wpis jest oznaczony jako syntetyczny.
+powiadomienie i raport „zero-day” w skrzynce każdej roli, bez modelu językowego. Skrypt
+wypisuje czasy kolejnych kroków (lokalnie około 50 ms, CI pilnuje progu 5 s). W konsoli pojawia
+się czerwony baner z linkiem do raportu i znika po jego przeczytaniu. W dzienniku audytu wpis
+jest oznaczony jako syntetyczny.
 
-![Skrzynka menedżera](docs/screenshots/etap4b-skrzynka.png)
 ![Raport „W skrócie”](docs/screenshots/etap4b-raport.png)
 ![Baner zero-day](docs/screenshots/etap4b-baner-zero-day.png)
 
@@ -91,39 +94,21 @@ audytu wpis jest oznaczony jako syntetyczny.
 ![Skany](docs/screenshots/etap2-skany.png)
 ![Kolejka weryfikacji](docs/screenshots/etap2-weryfikacja.png)
 
-### Konsola menedżera i Sentek (Etap 6)
+### Role i użytkownicy (P1)
 
-Konto `manager` w `/dashboard/` widzi organizację, nie adresy IP: strona główna ze stanem
-bezpieczeństwa i pokryciem inwentarza, urządzenia z działem i właścicielem, „Nieznane i
-niepotwierdzone” (możliwe shadow IT), ludzie i urządzenia, karta urządzenia z historią oraz
-mapa organizacji (`/dashboard/mapa`). Organizacja pochodzi z atrap AD, MDM, CMDB i DHCP
-(`python -m app.cli sync-org`, wołane przez `seed-demo`), nazwiska są fikcyjne, a przełącznik
-„Pokaż pseudonimy” zamienia je na „Pracownik #N” ([PRIVACY.md](docs/PRIVACY.md)).
+Strona „Role i użytkownicy” (`/admin/role`, uprawnienie `iam:read`) pokazuje macierz
+uprawnień czterech ról z briefu i ról własnych. Administrator tworzy w edytorze rolę własną z
+dowolnego podzbioru uprawnień z [`rules/roles.yaml`](rules/roles.yaml), z wyjątkiem
+`iam:manage`, i nadaje użytkownikom role wbudowane (bez Administracji, którą nadaje się tylko w
+Keycloak) albo własne. Każda zmiana trafia do dziennika audytu. Karta hosta (`/admin/zasoby/:id`)
+pokazuje atrybuty, wykryte usługi, aktywne zagrożenia i historię zmian.
 
-- **Aktualny obraz**: raport z bieżącego stanu bazy w kilka sekund, bez nowego skanu. Przy
-  danych starszych niż próg widać ostrzeżenie i przycisk „Poproś o nowe skanowanie”: prośba
-  czeka w kolejce admina, a menedżer sam niczego nie skanuje.
-- **Samouczek** przy pierwszym logowaniu (9 kroków), do powtórzenia przyciskiem w nagłówku.
-- **Sentek** („Zapytaj Sentka”): asystent, który pomaga czytać dane. Nie skanuje sieci i nie
-  zmienia ustawień. Lokalny model tylko rozpoznaje intencję (najważniejsze zagrożenia,
-  urządzenia, historia urządzenia, wyjaśnienie, „czy jesteśmy podatni”, terminy, prośba o skan,
-  oprowadzenie); odpowiedź buduje kod z bazy, z tymi samymi uprawnieniami i redakcją co
-  konsola. Bez modelu działa dopasowanie słów kluczowych. Polecenia typu „wyłącz skaner”
-  dostają odmowę. Sentka można wyłączyć przyciskiem w nagłówku.
+Sentek (asystent) ma w P1 tylko backend: odpowiada z danych w granicach uprawnień pytającego,
+a prośbę o skan zamienia w propozycję zadania dla agenta, którego plan zatwierdza człowiek.
+Interfejs Sentka wraca w konsoli w P10.
 
-![Strona główna menedżera](docs/screenshots/etap6-strona-glowna.png)
-![Karta urządzenia](docs/screenshots/etap6-karta-urzadzenia.png)
-![Mapa organizacji](docs/screenshots/etap6-mapa.png)
-![Sentek](docs/screenshots/etap6-sentek.png)
-
-### Film demo 60 s
-
-Zmontowany film z prawdziwej aplikacji, prowadzony przez Sentka, z lokalnym lektorem (Piper,
-głos CC0) i napisami: `seed_demo.sh` → `scripts/demo_stage.py` → `scripts/demo_tts.sh` →
-`scripts/record_demo.sh` → `scripts/assemble_demo.sh`. Szczegóły, licencja głosu i plan B:
-[docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md). Film i klipy są poza Gitem.
-
-![Scena zero-day w trybie nagrywania](docs/screenshots/etap6-film-zero-day.png)
+![Role i użytkownicy](docs/screenshots/p1-role.png)
+![Karta hosta](docs/screenshots/p1-karta-hosta.png)
 
 ### Feedy: snapshoty i tryb online
 
@@ -177,19 +162,22 @@ pod `/auth`. Realm `sentinel` jest importowany przy starcie z
 [`infra/keycloak/sentinel-realm.json`](infra/keycloak/sentinel-realm.json) i nie zawiera
 haseł ani sekretów.
 
-- **Role:** `admin`, `manager`, `auditor`, `agent`, `system`. Keycloak trzyma tylko
-  przynależność do ról; uprawnienia ról są w [`rules/roles.yaml`](rules/roles.yaml), a
-  sprawdza je backend na każdym endpoincie (deny-by-default). Test przegląda wszystkie
-  trasy i nie przechodzi, gdy któraś nie deklaruje uprawnienia; macierz rola × endpoint
-  sprawdza 2xx, 403 i 401.
-- **MFA:** admin loguje się do `/admin/` hasłem i kodem TOTP. Backend uznaje MFA wyłącznie
-  na podstawie claimu `amr` w tokenie, więc konsola operacyjna i zgody na skany L2/L3 bez
-  drugiego składnika kończą się odmową.
+- **Role:** `administrator`, `editor`, `modifier`, `viewer` (cztery role z briefu) oraz
+  techniczne `agent` i `system`. Keycloak trzyma tylko przynależność do ról; uprawnienia ról
+  są w [`rules/roles.yaml`](rules/roles.yaml), a sprawdza je backend na każdym endpoincie
+  (deny-by-default). Role własne i nadania z konsoli są w bazie (`iam_custom_role`,
+  `iam_role_grant`). Test przegląda wszystkie trasy i nie przechodzi, gdy któraś nie deklaruje
+  uprawnienia; macierz rola × endpoint × akcja sprawdza 2xx, 403 i 401
+  ([docs/ROLES.md](docs/ROLES.md)).
+- **MFA:** każda rola loguje się do `/admin/` hasłem i kodem TOTP. Backend uznaje MFA
+  wyłącznie na podstawie claimu `amr` w tokenie, więc konsola, zmiany i zgody na skany L2/L3
+  bez drugiego składnika kończą się odmową; bez MFA zostaje tylko odczyt przez API.
 - **Sesje:** token dostępu 5 minut z odświeżaniem, 30 minut bezczynności, maksymalnie 12 h.
   Wylogowanie unieważnia sesję w Keycloaku i w backendzie (lista w Redisie; gdy Redis nie
   odpowiada, backend odmawia). Po 5 nieudanych próbach konto jest blokowane na 1–15 minut.
-- **Redakcja dla menedżera:** adresy IP, banery, dowody i parametry techniczne są usuwane w
-  warstwie serializacji API, nie w interfejsie.
+- **Redakcja danych technicznych:** bez uprawnienia `secrets:redacted:view` adresy IP,
+  banery, dowody i parametry techniczne są usuwane w warstwie serializacji API, nie w
+  interfejsie. Cztery role z briefu je mają; redakcja dotyczy ról własnych bez tego uprawnienia.
 - **Odmowy w audycie:** każda odpowiedź 403 trafia do dziennika audytu z aktorem i
   identyfikatorem żądania (`X-Request-ID`).
 - **Break-glass:** `./scripts/breakglass.sh` ustawia hasło i TOTP konta `breakglass-admin` i
@@ -199,14 +187,12 @@ haseł ani sekretów.
 
 **Dostęp spoza localhost.** Na razie interfejs nasłuchuje tylko na `127.0.0.1`. Dostęp z
 sieci powstanie w Etapie 9 jako profil Compose `tls`: Caddy z certyfikatem lokalnym jako
-reverse proxy dla obu konsol, API i Keycloaka. Bez HTTPS logowanie spoza localhost i tak by
+reverse proxy dla konsoli, API i Keycloaka. Bez HTTPS logowanie spoza localhost i tak by
 nie zadziałało: przeglądarka udostępnia Web Crypto (potrzebne do PKCE) tylko w bezpiecznym
 kontekście, a ciasteczka Keycloaka mają flagę `Secure`.
 
 ![Drugi składnik logowania admina](docs/screenshots/etap4-totp.png)
 ![Odmowy w dzienniku audytu](docs/screenshots/etap4-audyt-odmowy.png)
-![Menedżer w konsoli operacyjnej](docs/screenshots/etap4-odmowa-menedzera.png)
-![Dashboard menedżera](docs/screenshots/etap4-dashboard.png)
 
 ## Wymagania sprzętowe
 
@@ -227,18 +213,16 @@ kontekście, a ciasteczka Keycloaka mają flagę `Secure`.
 | Powiadomienia | Reguły w [`rules/notifications.yaml`](rules/notifications.yaml): grupowanie per zasób, bez powtórek w ciągu doby. E-mail, Slack i Teams są wyłączone do czasu konfiguracji w `.env`. |
 | AI Explainer | Wyjaśnienia na trzech poziomach z lokalnego modelu (Ollama), generowane raz i trzymane w cache, z walidatorem faktów i wersją z szablonu, gdy model jest niedostępny albo się myli. Streaming przez SSE. Prompty wersjonowane w `backend/app/explainer/prompts/`, limity w [`rules/explainer.yaml`](rules/explainer.yaml). |
 | Raporty | Raport dwuwarstwowy: światło z reguł [`rules/reports.yaml`](rules/reports.yaml), „W skrócie” z modelu po walidacji (albo z szablonu), słownik terminów [`rules/glossary.yaml`](rules/glossary.yaml), szczegóły techniczne. Doręczenie do skrzynki ról z potwierdzeniem odczytu per osoba. Nazwy zasobów i osób model widzi tylko jako tokeny (`asset_1`, `person_1`). |
-| Scenariusz zero-day | `scripts/inject_kev.sh`: syntetyczny wpis KEV, raport w skrzynce i baner w konsoli menedżera w czasie poniżej 5 s, bez modelu. |
+| Scenariusz zero-day | `scripts/inject_kev.sh`: syntetyczny wpis KEV, raport w skrzynce i baner w konsoli w czasie poniżej 5 s, bez modelu. |
 | Testy własnego AI | [promptfoo w `ai-tests/`](ai-tests/README.md): pośrednie prompt injection przez opisy CVE na prawdziwej ścieżce aplikacji, z posłuszną atrapą (każdy PR) i z Qwen3 4B (9 przypadków w każdym PR, pełny zestaw nocą), wyniki osobno. Nocą także generowany red team OWASP LLM Top 10 (generator i sędzia przez API na syntetycznych danych, bez klucza Bielik 4.5B). |
 | Agent AI | Polecenie → plan (model albo szablon) → walidacja kodem → zatwierdzenie przez admina → wykonanie przez serwer MCP `mcp-scanner` (polityka zdolności → `scope_guard` → adapter). Sześć narzędzi: `discover_hosts`, `scan_services`, `probe_http` (L1), `scan_all_ports`, `verify_cve` z nuclei (szablony detekcyjne), `collect_software_authenticated` (L2). Jedna runda kroków uzupełniających, też do zatwierdzenia. Kill switch jednym kliknięciem. |
 | Poświadczenia JIT | OpenBao: certyfikat SSH podpisywany na zadanie z TTL 15 min, klucz tylko w pamięci, odwołanie leasu po zadaniu. Sekret nie trafia do modelu, logów, API ani audytu (testy z kanarkami). |
 | Test agenta (moduł 19) | Niezależny harness na osobnej kolejce i osobnym użytkowniku bazy, tryb dry-run z atrapami narzędzi i kanarkami, 12 przypadków w sześciu kategoriach, dwie oceny (model i kod), wynik podpisany Ed25519 i w audycie. Bramka zmian konfiguracji agenta z wymuszeniem wymagającym uzasadnienia. Nocny przebieg w CI. |
 | Sygnały bez CPE | Wpis KEV bez zakresu wersji w NVD trafia do kolejki weryfikacji jako sygnał; finding powstaje wyłącznie po decyzji człowieka. |
 | Kolejki | Osobne kolejki Celery: `default`, `scans`, `feeds`, `llm` (zawsze jedno zadanie naraz), `agent`, `agent_tests`. |
-| Tożsamość i RBAC | Keycloak (OIDC, PKCE), TOTP dla admina, krótkie sesje z unieważnianiem, blokada po nieudanych próbach, break-glass z alertem. Uprawnienie na każdym endpoincie, redakcja danych dla menedżera, odmowy w audycie. |
-| Interfejs | Konsola operacyjna `/admin/`: Pulpit, Zasoby, Zagrożenia, Feed zagrożeń, Kolejka weryfikacji, Skany (z prośbami menedżera o skan), Zakres skanowania, Raporty, Agent AI, Test agenta, Dziennik audytu. Konsola menedżera `/dashboard/`: strona główna, najważniejsze zagrożenia, urządzenia, nieznane i niepotwierdzone, ludzie i urządzenia, karta urządzenia, mapa organizacji, Skrzynka, Raporty, baner zero-day, „Aktualny obraz” i samouczek. |
-| Organizacja i prywatność | Atrapy AD, MDM, CMDB i DHCP, scalanie urządzeń, reguła shadow IT, metryka pokrycia z trendem. Nazwiska tylko z `personal_data:view` i z wpisem w audycie, pseudonimy w eksportach, retencja ([PRIVACY.md](docs/PRIVACY.md)). |
-| Sentek | Asystent menedżera: model rozpoznaje tylko intencję (limit 4 s, potem słowa kluczowe), odpowiedź buduje kod z bazy z RBAC i redakcją, odmowa poleceń zmieniających cokolwiek, audyt bez treści pytania. Eval 39 wypowiedzi, promptfoo z wrogą atrapą w każdym PR. |
-| Film demo | Tryb nagrywania `?demo=record` (tylko `DEMO_MODE`), scenariusz w `demo/script.yaml` sprawdzany w CI, nagranie Playwright 1080p, lektor Piper lokalnie, montaż ffmpeg ([DEMO_GUIDE.md](docs/DEMO_GUIDE.md)). |
+| Tożsamość i RBAC | Keycloak (OIDC, PKCE), TOTP dla każdej roli, krótkie sesje z unieważnianiem, blokada po nieudanych próbach, break-glass z alertem. Cztery role z briefu, edytor ról własnych, nadawanie ról z konsoli, uprawnienie na każdym endpoincie, odmowy w audycie ([ROLES.md](docs/ROLES.md)). |
+| Interfejs | Jedna konsola zespołu IT `/admin/`: Pulpit, Skrzynka, Raporty, Zasoby z kartą hosta, Zagrożenia, Feed zagrożeń, Kolejka weryfikacji, Skany, Zakres skanowania, Agent AI, Test agenta, Dziennik audytu, Role i użytkownicy. Menu i formularze zależą od uprawnień roli; o dostępie decyduje backend. |
+| Sentek | Asystent (na razie tylko API, interfejs w P10): model rozpoznaje tylko intencję (limit 4 s, potem słowa kluczowe), odpowiedź buduje kod z bazy z RBAC, prośba o skan to tylko propozycja zadania dla agenta, odmowa poleceń zmieniających cokolwiek, audyt bez treści pytania. Eval 39 wypowiedzi, promptfoo z wrogą atrapą w każdym PR. |
 
 ## Zakres skanowania
 
@@ -266,13 +250,13 @@ npm run lint && npm run typecheck && npm run build
 # testy własnego AI (promptfoo), szczegóły w ai-tests/README.md
 cd ../ai-tests && npm ci && ./run.sh mock
 npm run dev:admin             # http://localhost:5173/admin/, proxy /api na :8000
-PORT=5174 npm run dev:dashboard  # http://localhost:5174/dashboard/
+npm run e2e                   # Playwright z podstawionym API (fikcyjne dane z e2e/fixtures)
 # /auth trafia do Keycloaka z docker compose (SENTINEL_AUTH_URL, domyślnie :8080);
 # PUBLIC_URL w .env musi wtedy wskazywać adres serwera deweloperskiego
 ```
 
 Zmiany trafiają do `main` wyłącznie przez pull requesty z gałęzi etapowych
-(`stage-N-nazwa`), w konwencji Conventional Commits.
+(`pN-nazwa`), w konwencji Conventional Commits.
 
 ## demo-lab
 
@@ -305,7 +289,7 @@ Nie uruchamiaj ich w żadnej innej konfiguracji.
   (pipeline, dopóki nie przejdzie na MCP). Worker agenta i pozostałe usługi nie mają tam drogi.
 - OpenBao w demo trzyma klucz rozpieczętowania w wolumenie `openbao-init`, dostępnym tylko
   dla usługi inicjalizującej. Produkcja: auto-unseal przez KMS/HSM.
-- E-mail z raportami i digestami idzie zawsze w wersji menedżera z PDF (bez danych
+- E-mail z raportami i digestami idzie zawsze w wersji „W skrócie” z PDF (bez danych
   technicznych) na jeden adres `NOTIFY_EMAIL_TO`; Slack, Teams dla raportów i baner przez SSE
   są w [ROADMAP](docs/ROADMAP.md).
 - Reguły przeciw pośredniemu prompt injection (sprzeczności, prośby o hasła) są słownikowe i

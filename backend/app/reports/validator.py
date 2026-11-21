@@ -1,6 +1,6 @@
 """Walidacja warstwy „W skrócie”: pochodzenie faktów, tokeny, prosty język, zgodność z oceną.
 
-Tekst modelu dla menedżera przechodzi, tylko gdy:
+Tekst modelu dla kierownictwa przechodzi, tylko gdy:
 - każdy token `asset_<n>`/`person_<n>` pochodzi z kontekstu, a w tekście nie ma adresów IP,
   domen ani nazw zasobów (model nigdy ich nie widział, więc mogły przyjść tylko z wstrzyknięcia),
 - identyfikatory CVE, wersje i daty pochodzą z faktów; nie ma linków ani poleceń,

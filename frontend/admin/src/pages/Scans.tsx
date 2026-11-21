@@ -7,8 +7,7 @@ import { Button } from "@shared/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@shared/components/ui/card";
 import { Input } from "@shared/components/ui/input";
 import { Table, Td, Th } from "@shared/components/ui/table";
-import { RequestStatus } from "@shared/components/freshness";
-import { api, type ScanAction, type ScanRequest } from "@shared/lib/api";
+import { api, type ScanAction } from "@shared/lib/api";
 import { SignedBy } from "@shared/lib/auth";
 import { formatDateTime } from "@shared/lib/utils";
 
@@ -29,7 +28,7 @@ const TRIGGERS: Record<string, string> = {
   manual: "ręcznie",
   scheduled: "harmonogram",
   seed_demo: "seed_demo",
-  manager_request: "prośba menedżera",
+  agent: "zadanie agenta",
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -136,96 +135,6 @@ function Approvals({ actions }: { actions: ScanAction[] }) {
   );
 }
 
-/** Prośby menedżerów (moduł 21): zatwierdzenie zleca zwykły skan zakresu. */
-function ScanRequests({ requests }: { requests: ScanRequest[] }) {
-  const queryClient = useQueryClient();
-  const [reason, setReason] = useState("");
-  const decide = useMutation({
-    mutationFn: ({ id, approve }: { id: string; approve: boolean }) =>
-      api.decideScanRequest(id, approve, reason.trim()),
-    onSuccess: () => {
-      setReason("");
-      void queryClient.invalidateQueries();
-    },
-  });
-  const pending = requests.filter((r) => r.status === "pending");
-  if (requests.length === 0) return null;
-  return (
-    <Card className={pending.length ? "mb-6 border-amber-300" : "mb-6"} data-demo="scan-requests">
-      <CardHeader>
-        <CardTitle>Prośby o skanowanie ({pending.length} czeka)</CardTitle>
-        <CardDescription>
-          Menedżer tylko prosi o skan. Zatwierdzenie uruchamia zwykły skan zakresu: planner,
-          scope_guard, poziomy i limity działają jak zawsze. Osoba prosząca dostaje powiadomienie
-          po skanie.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {pending.length > 0 && (
-          <Input
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            placeholder="Komentarz do decyzji (trafia do audytu i do osoby proszącej)"
-            aria-label="Komentarz do decyzji"
-            className="max-w-xl"
-          />
-        )}
-        <Table>
-          <thead>
-            <tr>
-              <Th>Kiedy</Th>
-              <Th>Kto</Th>
-              <Th>Zakres</Th>
-              <Th>Powód</Th>
-              <Th>Stan</Th>
-              <Th />
-            </tr>
-          </thead>
-          <tbody>
-            {requests.slice(0, 10).map((r) => (
-              <tr key={r.id}>
-                <Td>{formatDateTime(r.created_at)}</Td>
-                <Td>{r.requested_by}</Td>
-                <Td>{r.scope_label}</Td>
-                <Td>{r.reason || <span className="text-muted-foreground">brak</span>}</Td>
-                <Td>
-                  <RequestStatus request={r} />
-                </Td>
-                <Td>
-                  {r.status === "pending" && (
-                    <span className="flex gap-2">
-                      <Button
-                        size="sm"
-                        disabled={decide.isPending}
-                        onClick={() => decide.mutate({ id: r.id, approve: true })}
-                      >
-                        Zatwierdź i skanuj
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={decide.isPending}
-                        onClick={() => decide.mutate({ id: r.id, approve: false })}
-                      >
-                        Odrzuć
-                      </Button>
-                    </span>
-                  )}
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-        {decide.error && (
-          <p role="alert" className="text-sm text-red-700">
-            {decide.error.message}
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 export function Scans() {
   const queryClient = useQueryClient();
   const runs = useQuery({
@@ -236,11 +145,6 @@ export function Scans() {
   const awaiting = useQuery({
     queryKey: ["scan-actions", "awaiting_approval"],
     queryFn: () => api.scanActions("awaiting_approval"),
-    refetchInterval: 10_000,
-  });
-  const requests = useQuery({
-    queryKey: ["scan-requests", "admin"],
-    queryFn: () => api.scanRequests(),
     refetchInterval: 10_000,
   });
   const trigger = useMutation({
@@ -256,7 +160,6 @@ export function Scans() {
         title="Skany"
         description="Co zostało zeskanowane, która reguła o tym zdecydowała i jaką decyzję podjęła kontrola zakresu. Plan układa deterministyczny silnik reguł (rules/scan_rules.yaml)."
       />
-      <ScanRequests requests={requests.data ?? []} />
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <Button disabled={trigger.isPending} onClick={() => trigger.mutate()}>
           Uruchom skan zakresu

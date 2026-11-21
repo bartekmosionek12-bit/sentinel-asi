@@ -1,24 +1,26 @@
-/** Szkielet obu konsol: menu boczne, nagłówek ze stanem systemu i zalogowanym użytkownikiem. */
+/** Szkielet konsoli zespołu IT: menu boczne, nagłówek ze stanem systemu i zalogowanym użytkownikiem. */
 import { useQuery } from "@tanstack/react-query";
 import { ShieldCheck, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
-import { DemoStage } from "@shared/components/DemoStage";
 import { Badge } from "@shared/components/ui/badge";
 import { api } from "@shared/lib/api";
 import { UserMenu } from "@shared/lib/auth";
+import { useAuth } from "@shared/lib/auth-context";
 import { cn } from "@shared/lib/utils";
 
 export interface NavItem {
   path: string;
   label: string;
   icon: LucideIcon;
-  /** Etap planu, w którym widok dostaje dane. Brak = działa już teraz. */
+  /** Etap planu (P0–P12), w którym widok powstaje. Brak = działa już teraz. */
   stage?: number;
   summary?: string;
   /** Aktywny tylko dla dokładnie tej ścieżki (gdy pod nią są inne pozycje menu). */
   end?: boolean;
+  /** Uprawnienie potrzebne, żeby pozycja była widoczna (API i tak sprawdza je osobno). */
+  permission?: string;
 }
 
 export interface NavGroup {
@@ -79,10 +81,17 @@ export function AppShell({
   footer: string;
   /** Pilny komunikat nad treścią (np. raport zero-day w skrzynce). */
   banner?: ReactNode;
-  /** Dodatkowe elementy w nagłówku (np. przycisk samouczka w konsoli menedżera). */
+  /** Dodatkowe elementy w nagłówku . */
   headerExtra?: ReactNode;
   children: ReactNode;
 }) {
+  const { can } = useAuth();
+  const visible = navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.permission || can(item.permission)),
+    }))
+    .filter((group) => group.items.length);
   return (
     <div className="flex min-h-screen">
       <aside className="hidden w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:flex">
@@ -91,7 +100,7 @@ export function AppShell({
           <span className="text-base font-semibold">Sentinel ASI</span>
         </div>
         <nav className="flex-1 space-y-6 px-3 pb-6" aria-label="Nawigacja główna">
-          {navGroups.map((group) => (
+          {visible.map((group) => (
             <div key={group.title}>
               <p className="px-2 pb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">
                 {group.title}
@@ -126,7 +135,7 @@ export function AppShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-4 border-b border-border bg-card px-4 py-3 md:px-8">
           <nav className="flex gap-1 overflow-x-auto md:hidden" aria-label="Nawigacja mobilna">
-            {navGroups.flatMap((g) => g.items).map(({ path, label, icon: Icon, end }) => (
+            {visible.flatMap((g) => g.items).map(({ path, label, icon: Icon, end }) => (
               <NavLink
                 key={path}
                 to={path}
@@ -152,7 +161,6 @@ export function AppShell({
         <DemoDataNotice />
         <main className="min-w-0 flex-1 px-4 py-6 md:px-8">{children}</main>
       </div>
-      <DemoStage />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-"""Raporty dwuwarstwowe i skrzynka menedżera (Etap 4b, docs/ARCHITECTURE.md 8.5 i 12.3)."""
+"""Raporty dwuwarstwowe i skrzynka odbiorców raportów (Etap 4b, docs/ARCHITECTURE.md 8.5 i 12.3)."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ class Report(Base):
     summary_model: Mapped[str | None] = mapped_column(String(128))
     summary_problems: Mapped[list[str]] = mapped_column(default=list)
     prompt_version: Mapped[str | None] = mapped_column(String(64))
-    # Warstwa techniczna: wiersze z bazy (redakcja dla menedżera w API).
+    # Warstwa techniczna: wiersze z bazy (redakcja bez `secrets:redacted:view` w API).
     technical: Mapped[dict[str, Any]] = mapped_column(default=dict)
     created_by: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[CreatedAt]
@@ -64,7 +64,7 @@ class ReportDelivery(Base):
     """Doręczenie raportu do skrzynek wszystkich osób z daną rolą.
 
     Doręczamy roli, nie kontu: konto w bazie powstaje dopiero przy pierwszym logowaniu, a
-    menedżer zalogowany później też ma widzieć raporty wysłane wcześniej.
+    odbiorca zalogowany później też ma widzieć raporty wysłane wcześniej.
     """
 
     __tablename__ = "report_delivery"

@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, String, Text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, CreatedAt, UuidPk
@@ -65,4 +65,48 @@ class RolePermission(Base):
     )
 
 
-__all__ = ["PRINCIPAL_KINDS", "Permission", "Role", "RolePermission", "User", "uuid"]
+class CustomRole(Base):
+    """Rola własna z edytora ról (P1). Uprawnienia tylko z `rules/roles.yaml`, bez `iam:manage`.
+
+    Osobna tabela, bo `iam_role` jest kopią pliku nadpisywaną przy starcie API.
+    """
+
+    __tablename__ = "iam_custom_role"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    permissions: Mapped[list[str]] = mapped_column(default=list)
+    created_by: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[CreatedAt]
+    updated_by: Mapped[str | None] = mapped_column(String(255))
+    updated_at: Mapped[datetime | None]
+
+
+class RoleGrant(Base):
+    """Rola nadana w konsoli (poza Keycloakiem): rola własna albo editor, modifier, viewer.
+
+    Działa od następnego żądania; uprawnienia i tak wylicza backend przy każdym wywołaniu.
+    """
+
+    __tablename__ = "iam_role_grant"
+    __table_args__ = (UniqueConstraint("user_id", "role_name"),)
+
+    id: Mapped[UuidPk]
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("iam_user.id", ondelete="CASCADE"), index=True
+    )
+    role_name: Mapped[str] = mapped_column(String(64))
+    granted_by: Mapped[str] = mapped_column(String(255))
+    granted_at: Mapped[CreatedAt]
+
+
+__all__ = [
+    "PRINCIPAL_KINDS",
+    "CustomRole",
+    "Permission",
+    "Role",
+    "RoleGrant",
+    "RolePermission",
+    "User",
+    "uuid",
+]

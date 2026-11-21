@@ -1,1 +1,0 @@
-[{"id": "c1", "model": "qwen3-4b-q4km", "prompt_version": "agent_plan.v1", "capability_version": 1, "external_llm": false, "state": "active", "reason": "demo", "forced_by": null, "force_justification": null, "created_by": "seed_demo", "created_at": "2026-11-21T08:00:00Z", "activated_at": "2026-11-21T08:00:00Z"}]

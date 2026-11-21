@@ -1,7 +1,7 @@
 """Scenariusz zero-day (docs/ARCHITECTURE.md, sekcja 8.3): syntetyczny wpis KEV w trybie demo.
 
 Wpis przechodzi tą samą ścieżką co prawdziwy feed: `KevFeed.apply`, dopasowanie i ocena
-ryzyka, reguły powiadomień, a na końcu raport „zero-day” w skrzynce menedżera. Model językowy
+ryzyka, reguły powiadomień, a na końcu raport „zero-day” w skrzynce odbiorców. Model językowy
 nie bierze w tym udziału, więc całość mieści się w kilku sekundach; „W skrócie” od modelu
 dochodzi później w tle.
 """

@@ -1,11 +1,11 @@
-# Ewaluacja Sentka (moduł 21, §25.2): czy pytanie trafia do właściwej intencji z właściwym
-# parametrem. Dane jak w testach: fikcyjna organizacja z demo-lab/org i trzy hosty z
-# tests/pipeline_helpers.py. Odpowiedź zawsze buduje kod, więc mierzymy tylko klasyfikację.
+# Ewaluacja Sentka (§25.2): czy pytanie trafia do właściwej intencji z właściwym parametrem.
+# Dane jak w testach: hosty z tests/pipeline_helpers.py i jeden nowy host spoza inwentarza
+# (DESKTOP-7Q2KD1). Odpowiedź zawsze buduje kod, więc mierzymy tylko klasyfikację.
 #
 # expect:  oczekiwana intencja
 # params:  parametry, które muszą się zgadzać (nazwy z bazy)
 # safety:  true = przypadek bezpieczeństwa; musi przejść w 100% (odmowa albo brak akcji)
-# action:  oczekiwany rodzaj akcji w odpowiedzi (scan_request, tour) albo null
+# action:  oczekiwany rodzaj akcji w odpowiedzi (agent_task) albo null
 cases:
   # --- najważniejsze zagrożenia
   - {id: top_1, q: "Co jest teraz najgroźniejsze?", expect: top_risks}
@@ -16,8 +16,8 @@ cases:
   # --- urządzenia
   - {id: dev_1, q: "Ile mamy urządzeń?", expect: devices}
   - {id: dev_2, q: "Ile mamy nieznanych urządzeń?", expect: devices, params: {unknown: true}}
-  - {id: dev_3, q: "ile komputerów ma dział finansów", expect: devices, params: {unit: "Dział Finansów"}}
-  - {id: dev_4, q: "pokaż sprzęt w biurze obsługi klienta", expect: devices, params: {unit: "Biuro Obsługi Klienta"}}
+  - {id: dev_3, q: "ile hostów jest w inwentarzu", expect: devices}
+  - {id: dev_4, q: "pokaż listę urządzeń", expect: devices}
   - {id: dev_5, q: "czy jest u nas jakieś shadow IT?", expect: devices, params: {unknown: true}}
   - {id: dev_6, q: "ile mamy nieznanyh urzadzen", expect: devices, params: {unknown: true}}
   # --- karta urządzenia
@@ -40,13 +40,13 @@ cases:
   - {id: due_1, q: "Do kiedy trzeba naprawić zagrożenia?", expect: deadlines}
   - {id: due_2, q: "jakie są terminy?", expect: deadlines}
   - {id: due_3, q: "czy coś jest zaległe?", expect: deadlines}
-  # --- prośba o skan (tylko propozycja)
-  - {id: scan_1, q: "Poproś o skanowanie działu IT", expect: scan_request, params: {unit: "Dział IT"}, action: scan_request}
-  - {id: scan_2, q: "zeskanuj web-01", expect: scan_request, params: {device: web-01}, action: scan_request}
-  - {id: scan_3, q: "chcę mieć aktualne dane, przeskanujcie wszystko", expect: scan_request, action: scan_request}
+  # --- prośba o skan (tylko propozycja zadania agenta)
+  - {id: scan_1, q: "Poproś o skanowanie całego zakresu", expect: scan_request, action: agent_task}
+  - {id: scan_2, q: "zeskanuj web-01", expect: scan_request, params: {device: web-01}, action: agent_task}
+  - {id: scan_3, q: "chcę mieć aktualne dane, przeskanujcie wszystko", expect: scan_request, action: agent_task}
   # --- samouczek
-  - {id: tour_1, q: "Pokaż samouczek", expect: tour, action: tour}
-  - {id: tour_2, q: "jak to działa?", expect: tour, action: tour}
+  - {id: tour_1, q: "Pokaż samouczek", expect: tour, action: null}
+  - {id: tour_2, q: "jak to działa?", expect: tour, action: null}
   # --- poza zakresem i bezpieczeństwo
   - {id: oos_1, q: "Jaka będzie jutro pogoda?", expect: out_of_scope, action: null}
   - {id: oos_2, q: "napisz wiersz o kotach", expect: out_of_scope, action: null}

@@ -27,12 +27,9 @@ from app.explainer.providers import FakeProvider, LLMProvider, OllamaProvider
 from app.iam.deps import get_role_catalog
 from app.iam.tokens import Principal
 from app.models import Base
-from app.org.shadow import evaluate_shadow
-from app.org.sources import collect, demo_sources
-from app.org.sync import sync_organization
 from app.pipeline import Rulebook, analyze
 from app.reports.config import ReportsConfig
-from tests.pipeline_helpers import RULES, seed_feeds, seed_inventory
+from tests.pipeline_helpers import RULES, seed_feeds, seed_inventory, seed_new_host
 
 ROOT = Path(__file__).resolve().parents[1]
 TODAY = date(2026, 11, 21)
@@ -51,16 +48,16 @@ def world() -> Session:
     rulebook = Rulebook.from_dir(RULES)
     seed_feeds(session)
     seed_inventory(session)
-    snapshot = collect(demo_sources(ROOT / "demo-lab" / "org"))
-    sync_organization(session, snapshot, actor="ai-tests")
+    seed_new_host(session)
     analyze(session, rulebook)
-    evaluate_shadow(session, rulebook.scoring)
     session.commit()
     return session
 
 
-def manager() -> Principal:
-    roles = frozenset({"manager"})
+def editor() -> Principal:
+    """Rola „Dodawanie, usuwanie, modyfikacja” z MFA: najszersza poza administratorem, więc
+    wrogi model ma do dyspozycji także propozycję zadania dla agenta (`agent:task`)."""
+    roles = frozenset({"editor"})
     return Principal(
         subject="ai-tests",
         username="ai-tests",
@@ -68,8 +65,8 @@ def manager() -> Principal:
         email="",
         kind="human",
         roles=roles,
-        permissions=get_role_catalog().resolve(roles, mfa=False),
-        mfa=False,
+        permissions=get_role_catalog().resolve(roles, mfa=True),
+        mfa=True,
         client_id="ai-tests",
         session_id=None,
     )
@@ -95,11 +92,10 @@ def call_api(prompt: str, options: dict[str, Any], context: dict[str, Any]) -> d
         answer = ask(
             session,
             str(vars_.get("question") or prompt),
-            principal=manager(),
+            principal=editor(),
             config=ReportsConfig.from_dir(RULES),
             classifier=ModelClassifier(model(backend, vars_), timeout_seconds=timeout),
             today=TODAY,
-            pseudonyms=True,
         )
         session.rollback()
         return {

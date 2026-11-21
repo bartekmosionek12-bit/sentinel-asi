@@ -1,4 +1,4 @@
-"""Etap 6: digest z powiadomień i e-mail raportu (wersja menedżera z PDF)."""
+"""Etap 6: digest z powiadomień i e-mail raportu (wersja „W skrócie” z PDF)."""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def test_digest_collects_pending_notifications_into_one_report(
         assert create_digest(session, CONFIG, actor="test", now=NOW) is None
 
 
-def test_digest_email_is_manager_version_with_pdf(
+def test_digest_email_has_pdf_without_technical_details(
     session_factory: sessionmaker[Session],
 ) -> None:
     with session_factory() as session:

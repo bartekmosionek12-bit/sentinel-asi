@@ -47,7 +47,7 @@ docker compose exec -T worker-scans python -m app.cli seed-demo
 echo "==> Agent: zdolności dla demo-lab (L0-L2); działają po zaliczonym teście agenta"
 docker compose exec -T worker-agent python -m app.cli agent-bootstrap
 
-echo "==> Konta demo w Keycloaku (admin z TOTP, menedżer, audytor)"
+echo "==> Konta demo w Keycloaku (admin, editor, modifier, viewer; każde z TOTP)"
 ./scripts/demo_users.sh
 
 # Domyślny model to Qwen3 4B (LLM_MODEL=qwen3-4b-q4km w .env.example, wybór: eval/RESULTS.md).
@@ -65,7 +65,6 @@ PUBLIC_URL_VALUE=$(grep -E '^PUBLIC_URL=' .env | tail -n1 | cut -d= -f2- | tr -d
 PUBLIC_URL_VALUE=${PUBLIC_URL_VALUE:-http://localhost:8080}
 echo
 echo "Gotowe."
-echo "  Dashboard menedżera:  ${PUBLIC_URL_VALUE}/dashboard/"
-echo "  Konsola operacyjna:   ${PUBLIC_URL_VALUE}/admin/"
+echo "  Konsola zespołu IT:   ${PUBLIC_URL_VALUE}/admin/"
 echo "  Hasła i sekret TOTP kont demo: data/demo-credentials.env"
 echo "Uwaga: zwykłe 'docker compose up' przywraca pusty zakres skanowania."

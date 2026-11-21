@@ -1,4 +1,4 @@
-"""Findingi, ich historia, compliance i rekomendacje aktualizacji."""
+"""Findingi, ich historia i rekomendacje aktualizacji."""
 
 from __future__ import annotations
 
@@ -22,38 +22,6 @@ FINDING_STATUSES = (
     "false_positive",
 )
 RISK_LEVELS = ("krytyczny", "wysoki", "średni", "niski")
-FRAMEWORKS = ("CIS", "NIS2", "ISO27001")
-COMPLIANCE_OUTCOMES = ("pass", "fail", "na")
-
-
-class ComplianceRule(Base):
-    __tablename__ = "compliance_rule"
-    __table_args__ = (CheckConstraint(_in("framework", FRAMEWORKS), name="framework_valid"),)
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    framework: Mapped[str] = mapped_column(String(20))
-    mappings: Mapped[dict[str, Any]] = mapped_column(default=dict)
-    title: Mapped[str] = mapped_column(String(255))
-    description: Mapped[str] = mapped_column(Text, default="")
-    check: Mapped[dict[str, Any]] = mapped_column(default=dict)
-    remediation: Mapped[str] = mapped_column(Text, default="")
-    severity: Mapped[str] = mapped_column(String(20), default="medium")
-
-
-class ComplianceResult(Base):
-    __tablename__ = "compliance_result"
-    __table_args__ = (CheckConstraint(_in("result", COMPLIANCE_OUTCOMES), name="result_valid"),)
-
-    id: Mapped[UuidPk]
-    asset_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("asset.id", ondelete="CASCADE"), index=True
-    )
-    rule_id: Mapped[str] = mapped_column(
-        ForeignKey("compliance_rule.id", ondelete="CASCADE"), index=True
-    )
-    result: Mapped[str] = mapped_column(String(8))
-    evidence: Mapped[dict[str, Any]] = mapped_column(default=dict)
-    checked_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class Finding(Base):

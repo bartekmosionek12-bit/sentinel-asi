@@ -1,1 +1,0 @@
-[{"id": "l1", "task_id": "t1", "step_id": "s2", "kind": "ssh_certificate", "target": "172.30.99.10", "principal": "sentinel-agent", "serial": "4711", "ttl_seconds": 900, "issued_by": "openbao", "issued_at": "2026-11-21T08:00:00Z", "expires_at": "2026-11-21T08:15:00Z", "revoked_at": null, "revoked_by": null}]

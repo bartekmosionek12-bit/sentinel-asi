@@ -11,22 +11,17 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.assistant.answers import Answer, build
+from app.assistant.answers import NON_DEVICE_TYPES, Answer, build
 from app.assistant.classify import Catalog, ModelClassifier
 from app.assistant.text import MAX_QUESTION_CHARS, Named
 from app.core import audit
 from app.iam.tokens import Principal
-from app.models import Asset, OrgUnit, Software
-from app.org.shadow import NON_DEVICE_TYPES
+from app.models import Asset, Software
 from app.reports.config import ReportsConfig
 
 
 def catalog(session: Session, config: ReportsConfig, principal: Principal) -> Catalog:
     """Nazwy, które Sentek rozpoznaje. Urządzenia i programy tylko z `inventory:read`."""
-    units = [
-        Named(str(u.id), u.name, (u.name.removeprefix("Dział ").removeprefix("Zespół "),))
-        for u in session.scalars(select(OrgUnit).order_by(OrgUnit.name))
-    ]
     terms = [Named(term.key, term.name, (term.key,)) for term in config.glossary]
     devices: list[Named] = []
     products: list[Named] = []
@@ -46,7 +41,7 @@ def catalog(session: Session, config: ReportsConfig, principal: Principal) -> Ca
             for p in session.scalars(select(Software.product).distinct())
             if p and len(p) >= 3
         ]
-    return Catalog(devices=devices, units=units, products=products, terms=terms)
+    return Catalog(devices=devices, products=products, terms=terms)
 
 
 def ask(
@@ -57,11 +52,10 @@ def ask(
     config: ReportsConfig,
     classifier: ModelClassifier,
     today: date,
-    pseudonyms: bool = False,
 ) -> Answer:
     text = question.strip()[:MAX_QUESTION_CHARS]
     intent = classifier.classify(text, catalog(session, config, principal))
-    answer = build(session, intent, config, principal, today, pseudonyms=pseudonyms)
+    answer = build(session, intent, config, principal, today)
     audit.record(
         session,
         audit.AuditEvent(

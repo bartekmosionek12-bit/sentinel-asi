@@ -1,6 +1,6 @@
 # Macierz zgodności z briefem AGH
 
-Stan na 21.11.2026 (Etap P0, przed zmianami w kodzie). Źródło wymagań: [BRIEF.md](BRIEF.md).
+Stan na 21.11.2026 (po P1: role z briefu i jedna konsola). Źródło wymagań: [BRIEF.md](BRIEF.md).
 Ta tabela jest też slajdem prezentacji; aktualizujemy ją po każdym etapie.
 
 **Status:** ✅ jest · 🟡 częściowo · ❌ brak. „Częściowo” znaczy, że jest działający kod, który
@@ -27,13 +27,13 @@ prezentacja. Plan i linia cięcia: [ROADMAP.md](ROADMAP.md).
 
 | Grupa | ✅ | 🟡 | ❌ |
 |---|---|---|---|
-| Sekcja 2, pkt 1–16 | 1 | 9 | 6 |
+| Sekcja 2, pkt 1–16 | 3 | 8 | 5 |
 | Sygnatury i harmonogram (akapity sekcji 2) | 0 | 1 | 1 |
 | Minimalny zakres (sekcja 3) | 3 | 4 | 7 |
-| Mile widziany zakres (sekcja 3) | 0 | 6 | 5 |
+| Mile widziany zakres (sekcja 3) | 0 | 5 | 6 |
 | Wymagania formalne i techniczne (sekcje 4–5) | 1 | 3 | 1 |
-| Walidacja (sekcja 6, pkt 1–12) | 1 | 6 | 5 |
-| **Razem (60 pozycji)** | **6** | **29** | **25** |
+| Walidacja (sekcja 6, pkt 1–12) | 2 | 5 | 5 |
+| **Razem (60 pozycji)** | **9** | **26** | **25** |
 
 Wniosek: mamy solidne fundamenty bezpieczeństwa (scope_guard, audyt, RBAC deny-by-default,
 Keycloak z MFA, OpenBao, agent z zatwierdzaniem i testem bezpieczeństwa), ale rdzeń briefu
@@ -56,10 +56,10 @@ obowiązkowe).
 | R9 | Oznaczenie nowych, znikających i zmienionych usług | 🟡 | `ServiceDiff` (dodane i usunięte), bez „zmienionych” | Stany nowy / zmieniony / niepotwierdzony / znikający / nieaktywny według reguł; zmiana wersji, banera, TLS jako „zmieniona” | P5 | K3 |
 | R10 | Własne sygnatury detekcyjne | ❌ | (nuclei tylko jako `verify_cve` agenta, poziom L2) | Format YAML, typy dopasowań z briefu, walidator bezpieczeństwa (tylko GET/HEAD), UI: dodaj, edytuj, testuj, import/eksport | P7 | K5 |
 | R11 | Formularz: ręcznie oraz plik CSV i/lub JSON, przetwarzane tak samo | 🟡 | Formularz i import CSV zasobów w `/admin/zasoby`; brak JSON; zasoby nie wyznaczają celów skanu | Jedna ścieżka przetwarzania dla formularza, CSV i JSON (cele i wyniki skanów); podgląd przed zapisem | P2 | K2 |
-| R12 | RBAC z możliwością tworzenia i obsługi różnych ról | 🟡 | `rules/roles.yaml`, `iam/rbac.py`, `require()` na każdym endpoincie (deny-by-default), Keycloak; ról nie da się tworzyć w UI | Zarządzanie rolami w konsoli (administrator: tworzenie roli z listy uprawnień, przypisanie użytkownikom); macierz testów rola × endpoint × akcja | P1 | K6 |
-| R13 | Role: Administracja; Dodawanie, usuwanie, modyfikacja; Modyfikacja i odczyt; Odczyt | ❌ | Role `admin`, `manager`, `auditor`, `agent` | `administrator`, `editor`, `modifier`, `viewer` + tożsamość `agent`; polskie nazwy w UI; `docs/ROLES.md` | P1 | K6 |
+| R12 | RBAC z możliwością tworzenia i obsługi różnych ról | ✅ | `rules/roles.yaml`, `require()` na każdym endpoincie (deny-by-default); edytor ról własnych i nadawanie ról w konsoli (`/admin/role`, `iam_custom_role`, `iam_role_grant`, audyt); macierz rola × endpoint × akcja w `docs/ROLES.md` z testem | – | P1 | K6 |
+| R13 | Role: Administracja; Dodawanie, usuwanie, modyfikacja; Modyfikacja i odczyt; Odczyt | ✅ | `administrator`, `editor`, `modifier`, `viewer` + tożsamości `agent` i `system`; polskie nazwy w UI; Keycloak i konta demo; `docs/ROLES.md` | – | P1 | K6 |
 | R14 | Edycja wartości niezależnie od stanu skanu, zachowana przy kolejnych skanach | ❌ | Tylko status findingu (`PATCH /api/findings/{id}`); dane hosta nadpisuje kolejny skan | Warstwa nadpisań użytkownika oddzielna od obserwacji; skan nigdy jej nie nadpisuje; widok scalony z oznaczeniem kto i kiedy; historia | P2 | K2, K6 |
-| R15 | Czytelny interfejs dla każdej roli, dashboard najważniejszych znalezisk | 🟡 | Konsola `/admin/` (Pulpit pod CVE i ryzyko); konsola menedżera do usunięcia | Dashboard discovery: znaleziska, zmiany, panele i staging, niestabilne hosty, skany z ETA, status DefectDojo; elementy ukryte według roli | P10 | K4 |
+| R15 | Czytelny interfejs dla każdej roli, dashboard najważniejszych znalezisk | 🟡 | Jedna konsola `/admin/` dla czterech ról, menu i formularze według uprawnień, karta hosta (P1); Pulpit nadal pod CVE i ryzyko | Dashboard discovery: znaleziska, zmiany, panele i staging, niestabilne hosty, skany z ETA, status DefectDojo; elementy ukryte według roli | P10 | K4 |
 | R16 | Szyfrowanie w spoczynku pól z danymi wrażliwymi | ❌ | brak (OpenBao jest, ale tylko do poświadczeń JIT) | Szyfrowanie pól (OpenBao Transit), HMAC do wyszukiwania, rotacja kluczy, test `pg_dump`, `docs/DATA_PROTECTION.md` | P9 | K6 |
 
 ## B. Akapity sekcji 2: sygnatury i harmonogram
@@ -84,7 +84,7 @@ obowiązkowe).
 | M9 | Porównanie dwóch skanów | ❌ | Brak widoku przebieg × przebieg (jest tylko historia zasobu) | P5 | K3 |
 | M10 | Dashboard lub raport najważniejszych zmian | ❌ | Raporty są o CVE, nie o zmianach discovery | P5, P10 | K3, K4 |
 | M11 | Eksport wyników do JSON lub CSV | ❌ | Jest tylko PDF raportu | P2 | K2 |
-| M12 | Rozgraniczenie funkcjonalności na role | ✅ | RBAC na każdym endpoincie; role do wymiany (R13) | P1 | K6 |
+| M12 | Rozgraniczenie funkcjonalności na role | ✅ | RBAC na każdym endpoincie, cztery role z briefu, macierz testów (P1) | P1 | K6 |
 | M13 | Edycja danych istniejących skanów, wyników i konfiguracji | 🟡 | Tylko status findingu i decyzje kolejki weryfikacji | P2, P8 | K2 |
 | M14 | Ochrona danych ze skanów (szyfrowanie) | ❌ | Jak R16 | P9 | K6 |
 
@@ -101,7 +101,7 @@ obowiązkowe).
 | N7 | Grupowanie podobnych usług | ❌ | Technologia + wersja + favicon | P4 | K5 |
 | N8 | Obsługa tagów | 🟡 | Pole `asset.tags` (formularz, CSV); brak tagów na usługach i obserwacjach, brak filtrów | P2 | K2 |
 | N9 | Eksport obserwacji do DefectDojo (finding informacyjny lub evidence) | ❌ | **Traktujemy jako obowiązkowe** (kryterium K2, nmap „integrujący się z DefectDojo”) | P6 | K2 |
-| N10 | Wizualizacja zmian w czasie | 🟡 | Jest wykres trendu pokrycia (do usunięcia z konsolą menedżera); trzeba wykresów zmian discovery | P5, P10 | K3 |
+| N10 | Wizualizacja zmian w czasie | ❌ | Wykres trendu pokrycia usunięty z konsolą menedżera (P1); historia zmian na karcie hosta; trzeba wykresów zmian discovery | P5, P10 | K3 |
 | N11 | Integracja z pasywnymi źródłami danych, jeśli zostaną udostępnione | 🟡 | Feedy NVD, KEV, EPSS (offline i online) to źródła pasywne o podatnościach; pasywny DNS itp. dopiero po udostępnieniu | po P12 | K1 |
 
 ## E. Wymagania formalne i techniczne (sekcje 4–5)
@@ -131,7 +131,7 @@ Test: co najmniej dwa przebiegi skanu, edycja znalezisk, import, rozgraniczenie 
 | V9 | Bezpieczeństwo i ostrożność skanera | 🟡 | scope_guard, poziomy L1–L3 ze zgodą, audyt z łańcuchem skrótów, kill switch agenta; do zrobienia: T3 zamiast T4, limity pakietów, User-Agent z kontaktem, kill switch dla wszystkich skanów, `docs/SAFE_SCANNING.md` | P3, P12 |
 | V10 | Czytelność dashboardu lub raportu | 🟡 | R15 | P10 |
 | V11 | Import oraz eksport danych | 🟡 | Import CSV zasobów jest; brak JSON, importu wyników i eksportu | P2 |
-| V12 | Rozgraniczenie funkcjonalności między role | 🟡 | RBAC jest; role do wymiany na cztery z briefu | P1 |
+| V12 | Rozgraniczenie funkcjonalności między role | ✅ | Cztery role z briefu, `docs/ROLES.md`, e2e menu według roli (P1) | P1 |
 
 ## G. Pytania z briefu i nasze odpowiedzi (do opisania w dokumentacji)
 

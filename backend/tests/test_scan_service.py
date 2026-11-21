@@ -148,8 +148,8 @@ def test_shadow_host_is_recorded_and_scanned_as_new(
     assert run.summary["hosts_new"] == 1
     assert ("new_host_service_scan", "172.30.99.14", "done") in _actions(seeded)
     keys = seeded.scalars(select(Finding.dedup_key).where(Finding.asset_id == shadow.id)).all()
-    # Podatność z usługi i finding shadow IT (#18): hosta nie ma w CSV, CMDB, AD ani MDM.
-    assert sorted(k.split(":")[0] for k in keys) == ["cve", "shadow"]
+    # Podatność z usługi. Nowy host to stan w inwentarzu (P5: stany hostów), nie finding.
+    assert sorted(k.split(":")[0] for k in keys) == ["cve"]
     assert any("CVE-2022-24735" in k for k in keys)
 
 

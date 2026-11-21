@@ -4,26 +4,30 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { NAV_GROUPS } from "@/navigation";
 import { Agent } from "@/pages/Agent";
 import { AgentTestDetail, AgentTests } from "@/pages/AgentTests";
+import { AssetDetail } from "@/pages/AssetDetail";
 import { Assets } from "@/pages/Assets";
 import { AuditLog } from "@/pages/AuditLog";
 import { Dashboard } from "@/pages/Dashboard";
 import { Findings } from "@/pages/Findings";
 import { ReportDetail, Reports } from "@/pages/Reports";
 import { ReviewQueue } from "@/pages/ReviewQueue";
+import { Roles } from "@/pages/Roles";
 import { Scans } from "@/pages/Scans";
 import { Scope } from "@/pages/Scope";
 import { ThreatFeed } from "@/pages/ThreatFeed";
 import { AppShell } from "@shared/components/AppShell";
 import { Planned } from "@shared/components/Planned";
+import { InboxPage, ReportPage } from "@shared/components/ReportPages";
+import { ZeroDayBanner } from "@shared/components/reports";
 import { api, ApiError } from "@shared/lib/api";
 import { AccessDenied } from "@shared/lib/auth";
 import { useAuth } from "@shared/lib/auth-context";
 
 const planned = NAV_GROUPS.flatMap((group) => group.items).filter((item) => item.stage);
 
-/** Konsola operacyjna jest dla administratora zalogowanego z TOTP. O wejściu decyduje API
- *  (`console:admin`); odmowa trafia do dziennika audytu, a każda operacja i tak ma osobne
- *  uprawnienie sprawdzane przy wywołaniu. */
+/** Konsola zespołu IT: jedyny interfejs, wspólny dla czterech ról z briefu. O wejściu decyduje
+ *  API (`console:admin`, wymaga TOTP); odmowa trafia do dziennika audytu, a każda operacja
+ *  i tak ma osobne uprawnienie sprawdzane przy wywołaniu (docs/ROLES.md). */
 export function App() {
   const { me } = useAuth();
   const access = useQuery({
@@ -43,22 +47,17 @@ export function App() {
         </p>
       );
     }
-    const admin = me?.roles.includes("admin");
+    const human = me?.kind === "human" && me.roles.length > 0;
     return (
-      <AccessDenied title="Brak dostępu do konsoli operacyjnej">
-        {admin ? (
+      <AccessDenied title="Brak dostępu do konsoli zespołu IT">
+        {human && !me?.mfa ? (
           <p>
-            Operacje administratora wymagają logowania z drugim składnikiem (TOTP). Wyloguj się
-            i zaloguj ponownie do konsoli operacyjnej.
+            Konsola wymaga logowania z drugim składnikiem (TOTP). Wyloguj się i zaloguj ponownie.
           </p>
         ) : (
           <p>
-            Ta konsola jest przeznaczona dla administratorów bezpieczeństwa. Próba dostępu
-            została zapisana w dzienniku audytu. Przegląd stanu bezpieczeństwa znajdziesz w{" "}
-            <a className="underline" href="/dashboard/">
-              dashboardzie
-            </a>
-            .
+            Twoje konto nie ma żadnej z ról konsoli. Poproś administratora o nadanie roli. Próba
+            dostępu została zapisana w dzienniku audytu.
           </p>
         )}
       </AccessDenied>
@@ -67,14 +66,18 @@ export function App() {
   return (
     <AppShell
       navGroups={NAV_GROUPS}
-      subtitle="Konsola operacyjna"
+      subtitle="Konsola zespołu IT"
       footer="Decyzje podejmuje kod. Model językowy tylko tłumaczy."
+      banner={<ZeroDayBanner basePath="/skrzynka" />}
     >
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/skrzynka" element={<InboxPage basePath="/skrzynka" />} />
+        <Route path="/skrzynka/:id" element={<ReportPage backTo="/skrzynka" />} />
         <Route path="/raporty" element={<Reports />} />
         <Route path="/raporty/:id" element={<ReportDetail />} />
         <Route path="/zasoby" element={<Assets />} />
+        <Route path="/zasoby/:id" element={<AssetDetail />} />
         <Route path="/zagrozenia" element={<Findings />} />
         <Route path="/feed" element={<ThreatFeed />} />
         <Route path="/weryfikacja" element={<ReviewQueue />} />
@@ -84,6 +87,7 @@ export function App() {
         <Route path="/agent/test" element={<AgentTests />} />
         <Route path="/agent/test/:id" element={<AgentTestDetail />} />
         <Route path="/audyt" element={<AuditLog />} />
+        <Route path="/role" element={<Roles />} />
         {planned.map((item) => (
           <Route key={item.path} path={item.path} element={<Planned item={item} />} />
         ))}

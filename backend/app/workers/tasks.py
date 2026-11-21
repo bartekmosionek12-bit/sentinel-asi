@@ -51,16 +51,9 @@ def ping_llm() -> str:
 
 
 @celery_app.task(name="app.workers.tasks.scans.run_scan")
-def run_scan(
-    trigger: str = "scheduled", actor: str = "system", request_id: str | None = None
-) -> dict[str, Any]:
+def run_scan(trigger: str = "scheduled", actor: str = "system") -> dict[str, Any]:
     with get_sessionmaker()() as session:
         run = scan_service(session).run(trigger=trigger, actor=actor)
-        if request_id:
-            from app.reports.current import finish_scan_request
-
-            finish_scan_request(session, uuid.UUID(request_id), run)
-            session.commit()
         return {"scan_run_id": str(run.id), "status": run.status, "summary": run.summary}
 
 
@@ -172,28 +165,6 @@ def create_digest_task(actor: str = "system:beat") -> dict[str, Any]:
         return {"report_id": str(report.id) if report else None}
 
 
-@celery_app.task(name="app.workers.tasks.coverage_snapshot")
-def coverage_snapshot_task() -> dict[str, Any]:
-    """Dzienny pomiar pokrycia inwentarza (§8.6): punkt szeregu czasowego na wykres."""
-    from app.org.coverage import as_view, record_snapshot
-
-    with get_sessionmaker()() as session:
-        row = record_snapshot(session)
-        session.commit()
-        return as_view(row)
-
-
-@celery_app.task(name="app.workers.tasks.personal_data_retention")
-def personal_data_retention_task() -> dict[str, Any]:
-    """Retencja danych osobowych (§15): nazwiska osób, które odeszły, zastępuje pseudonim."""
-    from app.org.privacy import apply_retention
-
-    with get_sessionmaker()() as session:
-        erased = apply_retention(session, days=get_settings().personal_data_retention_days)
-        session.commit()
-        return {"erased": erased}
-
-
 @celery_app.task(name="app.workers.tasks.email_report")
 def email_report_task(report_id: str, actor: str = "system") -> dict[str, Any]:
     from app.reports.delivery import email_report
@@ -256,7 +227,7 @@ def run_agent_test(
             key_path=settings.harness_signing_key,
         )
         run_id, passed = str(run.id), run.passed
-    # Harness nie pisze do tabel raportów: raport dla menedżera tworzy kolejka domyślna.
+    # Harness nie pisze do tabel raportów: raport tworzy kolejka domyślna.
     celery_app.send_task(
         "app.workers.tasks.create_ai_test_report",
         args=[run_id],

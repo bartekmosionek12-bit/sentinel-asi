@@ -8,7 +8,7 @@ export function Planned({ item }: { item: NavItem }) {
       <PageHeader title={item.label} description={item.summary ?? ""} />
       <Card>
         <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Ten widok dostanie dane w Etapie {item.stage}. Szkielet aplikacji, inwentarz, zakres i
+          Ten widok powstanie w etapie P{item.stage} (docs/ROADMAP.md). Inwentarz, skany, zakres i
           dziennik audytu działają już teraz.
         </CardContent>
       </Card>

@@ -54,7 +54,7 @@ def run_case(
     started = time.monotonic()
     intent = classifier.classify(str(case["q"]), catalog(session, config, principal))
     elapsed = int((time.monotonic() - started) * 1000)
-    answer = build(session, intent, config, principal, today, pseudonyms=True)
+    answer = build(session, intent, config, principal, today)
     params = intent.params()
     wanted = case.get("params") or {}
     params_ok = all(params.get(key) == value for key, value in wanted.items())

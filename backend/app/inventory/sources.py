@@ -1,4 +1,4 @@
-"""Które źródło widziało zasób (ASSET_SOURCE). Z tego liczymy regułę shadow IT (#18)."""
+"""Które źródło widziało zasób (skan, import) i kiedy."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Asset, AssetSource
 from app.models.base import utcnow
-from app.models.organization import ASSET_SOURCES, KNOWN_SOURCES
+from app.models.network import ASSET_SOURCES
 
 
 def touch_source(
@@ -20,7 +20,7 @@ def touch_source(
     *,
     now: datetime | None = None,
 ) -> AssetSource:
-    """Zapisuje, że `source` widziało zasób teraz. Wołane przy imporcie, skanie i synchronizacji."""
+    """Zapisuje, że `source` widziało zasób teraz. Wołane przy imporcie i skanie."""
     if source not in ASSET_SOURCES:
         raise ValueError(f"Nieznane źródło inwentarza: {source}")
     now = now or utcnow()
@@ -36,8 +36,6 @@ def touch_source(
         row.last_seen = now
         if external_id:
             row.external_id = external_id
-    if source in KNOWN_SOURCES:
-        asset.in_cmdb = True
     return row
 
 

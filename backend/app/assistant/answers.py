@@ -1,16 +1,14 @@
 """Odpowiedzi Sentka. Każdą buduje kod z danych w bazie, bez modelu językowego.
 
-Odpowiedź to kilka krótkich zdań, linki do widoków konsoli i propozycje kolejnych pytań.
-Nazwiska tylko dla `personal_data:view` (i bez trybu pseudonimów); w przeciwnym razie
-pseudonim „Pracownik #…”. Treści prawnych Sentek nie pisze: terminy to wewnętrzne terminy
-naprawy z `rules/reports.yaml`.
+Odpowiedź to kilka krótkich zdań, linki do widoków konsoli zespołu IT i propozycje kolejnych
+pytań. Sentek niczego nie uruchamia: prośbę o skan zamienia w propozycję zadania agenta, które
+człowiek sam zleca i zatwierdza. Terminy to wewnętrzne terminy naprawy z `rules/reports.yaml`.
 """
 
 from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -20,33 +18,23 @@ from sqlalchemy.orm import Session
 
 from app.assistant.classify import Intent
 from app.explainer.service import KIND as EXPLANATION_KIND
-from app.iam.redaction import PERSONAL_PERMISSION
 from app.iam.tokens import Principal
 from app.matching.engine import ACTIVE_STATUSES
-from app.models import (
-    Asset,
-    AssetAssignment,
-    AssetSource,
-    Finding,
-    LLMCache,
-    OrgUnit,
-    Person,
-    Software,
-    Vulnerability,
-)
-from app.org.privacy import pseudonym, record_personal_view
-from app.org.shadow import NON_DEVICE_TYPES, SOURCE_LABELS
+from app.models import Asset, AssetSource, Finding, LLMCache, Software, Vulnerability
 from app.reports.config import ReportsConfig
-from app.reports.current import freshness
 from app.reports.facts import Item, deadline, open_items
+from app.reports.freshness import freshness
 
 DISCLAIMER = "Sentek pomaga czytać dane. Nie skanuje sieci i nie zmienia ustawień."
+# Typy zasobów, które nie są hostem ani urządzeniem (nie liczą się w „ile mamy urządzeń”).
+NON_DEVICE_TYPES = ("domain", "ip", "service", "application")
+SOURCE_LABELS = {"scan": "skan sieci", "csv": "import CSV", "dns": "DNS", "dhcp": "DHCP"}
 SUGGESTIONS = (
     "Co jest teraz najgroźniejsze?",
-    "Ile mamy nieznanych urządzeń?",
+    "Ile mamy nowych hostów?",
     "Do kiedy trzeba naprawić zagrożenia?",
     "Co to jest KEV?",
-    "Pokaż samouczek",
+    "Przeskanuj ponownie zakres",
 )
 # Uprawnienie potrzebne do odpowiedzi (poza samym `assistant:use`).
 NEEDS: dict[str, str | None] = {
@@ -55,7 +43,7 @@ NEEDS: dict[str, str | None] = {
     "deadlines": "findings:read",
     "devices": "inventory:read",
     "device_story": "inventory:read",
-    "scan_request": "scan:request",
+    "scan_request": "agent:task",
     "explain": None,
     "tour": None,
     "out_of_scope": None,
@@ -81,13 +69,11 @@ class Answer:
     text: list[str]
     links: list[dict[str, str]] = field(default_factory=list)
     suggestions: list[str] = field(default_factory=list)
-    # Propozycja dla interfejsu: {"kind": "scan_request", ...} albo {"kind": "tour"}.
-    # Sentek sam niczego nie uruchamia; akcję potwierdza człowiek przyciskiem.
+    # Propozycja dla interfejsu: {"kind": "agent_task", "command": ...}. Sentek sam niczego
+    # nie uruchamia; zadanie zleca człowiek, a plan agenta zatwierdza administrator albo editor.
     action: dict[str, Any] | None = None
     pose: str = "talk"
     freshness: str | None = None
-    # Osoby pokazane z nazwiskiem (do audytu `personal_data_viewed`).
-    people_shown: list[Person] = field(default_factory=list)
 
 
 def plural(count: int, one: str, few: str, many: str) -> str:
@@ -104,7 +90,7 @@ def count(n: int, one: str, few: str, many: str) -> str:
 
 
 ITEMS = ("otwarte zagrożenie", "otwarte zagrożenia", "otwartych zagrożeń")
-UNKNOWN = ("nieznane urządzenie", "nieznane urządzenia", "nieznanych urządzeń")
+UNKNOWN = ("nowy host", "nowe hosty", "nowych hostów")
 
 
 def _suggest(*exclude: str) -> list[str]:
@@ -115,7 +101,7 @@ def _label(item: Item) -> str:
     if item.vuln is not None:
         return item.vuln.cve_id
     if item.finding.type == "exposure":
-        return "nieznane urządzenie w sieci"
+        return "nowy host w sieci"
     return item.finding.type
 
 
@@ -212,38 +198,27 @@ def _device_scope(session: Session) -> Any:
 
 
 def devices(session: Session, intent: Intent, config: ReportsConfig) -> Answer:
-    query = _device_scope(session)
-    unit_ids: list[uuid.UUID] = []
-    if intent.unit is not None:
-        unit_id = uuid.UUID(intent.unit.key)
-        children = session.scalars(select(OrgUnit.id).where(OrgUnit.parent_id == unit_id)).all()
-        unit_ids = [unit_id, *children]
-        query = query.where(Asset.org_unit_id.in_(unit_ids))
-    assets = session.scalars(query).all()
+    assets = session.scalars(_device_scope(session)).all()
     unknown = [a for a in assets if a.status == "shadow"]
     fresh = _fresh(session, config)
-    where = f" w dziale {intent.unit.name.removeprefix('Dział ')}" if intent.unit else ""
     if intent.unknown:
         if not unknown:
-            text = [
-                f"Nie widzę nieznanych urządzeń{where}. "
-                "Każde urządzenie z sieci jest w CMDB, AD albo MDM."
-            ]
+            text = ["Nie widzę nowych hostów: każdy host z sieci jest już w inwentarzu."]
             pose = "thumbs_up"
         else:
             names = ", ".join(a.name for a in unknown[:4])
             text = [
-                f"Widzę {count(len(unknown), *UNKNOWN)}{where}: {names}.",
-                "Są w sieci, a nie ma ich w CMDB, AD ani MDM. To może być shadow IT albo sprzęt, "
-                "którego ktoś nie zgłosił. Zespół IT może je potwierdzić albo wyjaśnić.",
+                f"Widzę {count(len(unknown), *UNKNOWN)}: {names}.",
+                "Odpowiadają w sieci, a nie było ich w inwentarzu ani w imporcie. "
+                "Warto sprawdzić, czyje są, i oznaczyć je w karcie hosta.",
             ]
             pose = "surprised"
         return Answer(
             intent.name,
             intent.source,
             text,
-            links=[{"label": "Nieznane urządzenia", "to": "/nieznane"}],
-            suggestions=_suggest("Ile mamy nieznanych urządzeń?"),
+            links=[{"label": "Zasoby", "to": "/zasoby"}],
+            suggestions=_suggest("Ile mamy nowych hostów?"),
             pose=pose,
             freshness=fresh,
         )
@@ -254,78 +229,35 @@ def devices(session: Session, intent: Intent, config: ReportsConfig) -> Answer:
         f"{label}: {count}" for label, count in sorted(by_type.items(), key=lambda kv: -kv[1])
     )
     text = [
-        f"Mamy {len(assets)} {plural(len(assets), 'urządzenie', 'urządzenia', 'urządzeń')}{where}"
+        f"Mamy {len(assets)} {plural(len(assets), 'host', 'hosty', 'hostów')}"
         + (f" ({kinds})." if kinds else ".")
     ]
     if unknown:
         text.append(
-            f"{len(unknown)} z nich "
-            f"{plural(len(unknown), 'jest nieznane', 'są nieznane', 'jest nieznanych')}: "
-            "widoczne w sieci, a nie ma ich w CMDB, AD ani MDM."
+            f"{len(unknown)} z nich {plural(len(unknown), 'jest nowy', 'są nowe', 'jest nowych')}: "
+            "odpowiadają w sieci, a nie było ich w inwentarzu."
         )
-    if intent.unit is not None:
-        link = {
-            "label": f"Urządzenia: {intent.unit.name}",
-            "to": f"/urzadzenia?dzial={intent.unit.key}",
-        }
-    else:
-        link = {"label": "Wszystkie urządzenia", "to": "/urzadzenia"}
     return Answer(
         intent.name,
         intent.source,
         text,
-        links=[link],
+        links=[{"label": "Zasoby", "to": "/zasoby"}],
         suggestions=_suggest(),
         pose="point_right",
         freshness=fresh,
     )
 
 
-def _people(session: Session, asset_id: uuid.UUID) -> dict[str, list[Person]]:
-    out: dict[str, list[Person]] = defaultdict(list)
-    rows = session.execute(
-        select(AssetAssignment.role, Person)
-        .join(Person, AssetAssignment.person_id == Person.id)
-        .where(AssetAssignment.asset_id == asset_id)
-        .order_by(Person.pseudonym_no)
-    ).all()
-    for role, person in rows:
-        out[role].append(person)
-    return out
-
-
-def device_story(
-    session: Session, intent: Intent, config: ReportsConfig, today: date, *, show_names: bool
-) -> Answer:
+def device_story(session: Session, intent: Intent, config: ReportsConfig, today: date) -> Answer:
     if intent.device is None:
         return out_of_scope(intent)
     asset = session.get(Asset, uuid.UUID(intent.device.key))
     if asset is None:
         return out_of_scope(intent)
-    unit = session.get(OrgUnit, asset.org_unit_id) if asset.org_unit_id else None
-    assigned = _people(session, asset.id)
-    shown: list[Person] = []
-
-    def who(people: Sequence[Person]) -> str:
-        names = []
-        for person in people:
-            if show_names:
-                shown.append(person)
-                names.append(person.full_name)
-            else:
-                names.append(pseudonym(person))
-        return ", ".join(names)
-
     kind = TYPE_LABELS.get(asset.type, asset.type)
-    first = f"{asset.name} to {kind}" + (
-        f" w dziale {unit.name.removeprefix('Dział ')}" if unit else ", bez przypisanego działu"
-    )
-    owner = who(assigned.get("owner", []))
-    user = who(assigned.get("user", []))
-    if owner:
-        first += f". Właściciel: {owner}"
-    if user:
-        first += f". Używa: {user}"
+    first = f"{asset.name} to {kind}"
+    if asset.owner:
+        first += f". Właściciel w inwentarzu: {asset.owner}"
     text = [first + "."]
     if asset.status == "shadow":
         sources = sorted(
@@ -335,8 +267,8 @@ def device_story(
             )
         )
         text.append(
-            "To urządzenie nieznane: widać je w sieci (" + ", ".join(sources) + "), "
-            "a nie ma go w CMDB, AD ani MDM."
+            "To nowy host: widać go w sieci (" + ", ".join(sources) + "), "
+            "a nie było go w inwentarzu."
         )
     items = [i for i in open_items(session) if i.asset.id == asset.id]
     if items:
@@ -354,11 +286,10 @@ def device_story(
         intent.name,
         intent.source,
         text,
-        links=[{"label": f"Karta urządzenia {asset.name}", "to": f"/urzadzenia/{asset.id}"}],
-        suggestions=[f"Poproś o skanowanie {asset.name}", *_suggest()[:2]],
+        links=[{"label": f"Karta hosta {asset.name}", "to": f"/zasoby/{asset.id}"}],
+        suggestions=[f"Przeskanuj ponownie {asset.name}", *_suggest()[:2]],
         pose=pose,
         freshness=_fresh(session, config),
-        people_shown=shown,
     )
 
 
@@ -519,7 +450,7 @@ def exposure_check(session: Session, intent: Intent, config: ReportsConfig) -> A
         intent.name,
         intent.source,
         text,
-        links=[{"label": "Urządzenia", "to": "/urzadzenia"}],
+        links=[{"label": "Zasoby", "to": "/zasoby"}],
         suggestions=_suggest(),
         pose="point_right",
         freshness=fresh,
@@ -570,31 +501,24 @@ def deadlines(session: Session, intent: Intent, config: ReportsConfig, today: da
 
 
 def scan_request(session: Session, intent: Intent, config: ReportsConfig) -> Answer:
-    scope: dict[str, str | None]
     if intent.device is not None:
-        scope = {
-            "scope_kind": "device",
-            "scope_ref": intent.device.key,
-            "label": f"urządzenie: {intent.device.name}",
-        }
-    elif intent.unit is not None:
-        scope = {
-            "scope_kind": "unit",
-            "scope_ref": intent.unit.key,
-            "label": f"dział: {intent.unit.name}",
-        }
+        label = f"host {intent.device.name}"
+        command = f"Przeskanuj ponownie host {intent.device.name} (odkrywanie usług, L1)"
     else:
-        scope = {"scope_kind": "organization", "scope_ref": None, "label": "cała organizacja"}
+        label = "cały autoryzowany zakres"
+        command = "Przeskanuj ponownie cały autoryzowany zakres (odkrywanie hostów i usług, L1)"
     return Answer(
         intent.name,
         intent.source,
         [
-            f"Mogę przygotować prośbę o nowe skanowanie ({scope['label']}).",
-            "Sam nie skanuję. Prośba trafi do kolejki administratora, a skan ruszy dopiero po jego "
-            "zatwierdzeniu. Potwierdź przyciskiem poniżej.",
+            f"Mogę przygotować zadanie dla agenta: nowy skan ({label}).",
+            "Sam nie skanuję. Zadanie zlecasz Ty, agent przygotuje plan, a skan ruszy dopiero po "
+            "zatwierdzeniu planu przez administratora albo editora. Każdy cel przechodzi przez "
+            "scope_guard.",
             _fresh(session, config),
         ],
-        action={"kind": "scan_request", **scope},
+        action={"kind": "agent_task", "command": command},
+        links=[{"label": "Agent AI", "to": "/agent"}],
         suggestions=_suggest(),
         pose="point_left",
     )
@@ -605,11 +529,13 @@ def tour(intent: Intent) -> Answer:
         intent.name,
         intent.source,
         [
-            "Pokażę Ci najważniejsze miejsca w konsoli. "
-            "Strzałki przechodzą dalej, Esc zamyka samouczek."
+            "Pulpit pokazuje stan skanów i zagrożeń. Zasoby to inwentarz hostów z historią, "
+            "Skany to przebiegi i akcje do zatwierdzenia, a Agent AI przyjmuje zadania, "
+            "których plan zatwierdza człowiek.",
+            "Pytaj mnie o hosty, zagrożenia, terminy i podatności CVE.",
         ],
-        action={"kind": "tour"},
-        suggestions=_suggest("Pokaż samouczek"),
+        links=[{"label": "Pulpit", "to": "/"}],
+        suggestions=_suggest(),
         pose="wave",
     )
 
@@ -620,8 +546,6 @@ def build(
     config: ReportsConfig,
     principal: Principal,
     today: date,
-    *,
-    pseudonyms: bool = False,
 ) -> Answer:
     needed = NEEDS.get(intent.name)
     if needed is not None and not principal.can(needed):
@@ -631,13 +555,7 @@ def build(
     if intent.name == "devices":
         return devices(session, intent, config)
     if intent.name == "device_story":
-        show = principal.can(PERSONAL_PERMISSION) and not pseudonyms
-        answer = device_story(session, intent, config, today, show_names=show)
-        if answer.people_shown:
-            record_personal_view(
-                session, actor=principal.actor, people=answer.people_shown, endpoint="assistant"
-            )
-        return answer
+        return device_story(session, intent, config, today)
     if intent.name == "explain":
         return explain(session, intent, config, principal)
     if intent.name == "exposure_check":

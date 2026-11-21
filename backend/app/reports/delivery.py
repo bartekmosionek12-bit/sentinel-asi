@@ -6,7 +6,7 @@ dobę (beat) albo na żądanie (`python -m app.cli digest`) kod zbiera je w jede
 findingów z tych powiadomień. Raport trafia do skrzynek, a powiadomienia przechodzą w stan
 `digested` ze wskazaniem raportu.
 
-E-mail: zawsze wersja menedżera (bez danych technicznych), PDF w załączniku. E-mail opuszcza
+E-mail: zawsze wersja „W skrócie” (bez danych technicznych), PDF w załączniku. E-mail opuszcza
 system, więc nigdy nie zawiera adresów IP, banerów ani dowodów, a dane osobowe (nazwiska
 właścicieli) są ukryte jak w każdym eksporcie (ARCHITECTURE §15), niezależnie od tego, kto
 zlecił wysyłkę.
@@ -30,7 +30,7 @@ from app.reports.config import ReportsConfig
 from app.reports.pdf import KIND_LABELS, LIGHT_LABELS, PdfError, filename, render_pdf, report_view
 from app.reports.service import create_report
 
-EMAIL_AUDIENCE = "menedżer (bez danych technicznych)"
+EMAIL_AUDIENCE = "W skrócie (bez danych technicznych)"
 
 
 class Mailer(Protocol):
@@ -61,7 +61,7 @@ def email_body(view: dict[str, Any]) -> str:
 def email_report(
     session: Session, report: Report, mailer: Mailer, *, actor: str, now: datetime | None = None
 ) -> str:
-    """Wysyła raport e-mailem (wersja menedżera + PDF). Zwraca `sent`, `failed` albo `skipped`."""
+    """Wysyła raport e-mailem (wersja „W skrócie” + PDF). Zwraca `sent`, `failed` albo `skipped`."""
     if "email" not in mailer.configured():
         return "skipped"
     # Eksport poza system: dane osobowe zawsze ukryte (ARCHITECTURE §15).

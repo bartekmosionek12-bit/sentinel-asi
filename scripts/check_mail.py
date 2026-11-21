@@ -4,7 +4,7 @@
 Użycie (po inject_kev.sh, z SMTP_HOST=mailpit w .env):
     python3 scripts/check_mail.py http://localhost:8025
 
-Sprawdza, że raport zero-day dotarł e-mailem jako wersja menedżera: z PDF w załączniku i bez
+Sprawdza, że raport zero-day dotarł e-mailem jako wersja „W skrócie”: z PDF w załączniku i bez
 adresów z demo-lab w treści. Tylko biblioteka standardowa; kod wyjścia 1 przy niespełnionym
 warunku.
 """
@@ -47,7 +47,7 @@ def main() -> int:
             a.get("ContentType") == "application/pdf" for a in attachments
         ),
         "treść ma warstwę „W skrócie”": "W skrócie" in text,
-        "treść bez adresów demo-lab (wersja menedżera)": message is not None
+        "treść bez adresów demo-lab (wersja „W skrócie”)": message is not None
         and "172.30.99." not in text,
     }
     return report(checks)

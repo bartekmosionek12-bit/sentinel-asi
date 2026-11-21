@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 
 import { PageHeader, QueryState } from "@shared/components/page";
 import { Badge } from "@shared/components/ui/badge";
@@ -7,31 +8,15 @@ import { Button } from "@shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@shared/components/ui/card";
 import { Input, Select } from "@shared/components/ui/input";
 import { Table, Td, Th } from "@shared/components/ui/table";
-import { api, type Asset, type AssetInput, type AssetType, type Exposure } from "@shared/lib/api";
-import { DEVICE_TYPE_LABELS } from "@shared/lib/labels";
+import { api, type AssetInput, type AssetType, type Exposure } from "@shared/lib/api";
+import { useAuth } from "@shared/lib/auth-context";
+import {
+  ASSET_STATUS_HINTS,
+  ASSET_STATUS_LABELS,
+  ASSET_TYPE_LABELS,
+  DEVICE_TYPE_LABELS,
+} from "@shared/lib/labels";
 import { formatDateTime } from "@shared/lib/utils";
-
-const TYPE_LABELS: Record<AssetType, string> = {
-  host: "Host",
-  domain: "Domena",
-  ip: "Adres IP",
-  service: "Usługa",
-  application: "Aplikacja",
-};
-
-const STATUS_LABELS: Record<Asset["status"], string> = {
-  active: "Aktywny",
-  missing: "Nie odpowiada",
-  retired: "Wycofany",
-  shadow: "Shadow IT",
-};
-
-const STATUS_HINTS: Record<Asset["status"], string> = {
-  active: "Zasób jest w inwentarzu i odpowiada",
-  missing: "Zasób jest w inwentarzu, ale nie odpowiedział w ostatnim skanie",
-  retired: "Zasób wycofany z użycia",
-  shadow: "Host odpowiada w sieci, ale nikt nie dodał go do inwentarza",
-};
 
 const EMPTY: AssetInput = {
   type: "host",
@@ -43,6 +28,7 @@ const EMPTY: AssetInput = {
 
 export function Assets() {
   const queryClient = useQueryClient();
+  const { can } = useAuth();
   const { data, isPending, error } = useQuery({
     queryKey: ["assets"],
     queryFn: api.assets,
@@ -78,6 +64,8 @@ export function Assets() {
         description="Centralny inwentarz. Każda podatność, aktualizacja, wynik skanu i reguła zgodności jest przypisana do zasobu z tej listy."
       />
 
+      {can("inventory:write") && (
+      <>
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Dodaj zasób ręcznie</CardTitle>
@@ -102,7 +90,7 @@ export function Assets() {
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value as AssetType })}
               >
-                {Object.entries(TYPE_LABELS).map(([value, label]) => (
+                {Object.entries(ASSET_TYPE_LABELS).map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
@@ -195,6 +183,8 @@ export function Assets() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
 
       <Card>
         <QueryState
@@ -219,9 +209,13 @@ export function Assets() {
             <tbody>
               {data.items.map((asset) => (
                 <tr key={asset.id}>
-                  <Td className="font-medium break-all">{asset.name}</Td>
+                  <Td className="font-medium break-all">
+                    <Link className="underline-offset-2 hover:underline" to={`/zasoby/${asset.id}`}>
+                      {asset.name}
+                    </Link>
+                  </Td>
                   <Td>
-                    {TYPE_LABELS[asset.type as AssetType] ??
+                    {ASSET_TYPE_LABELS[asset.type as AssetType] ??
                       DEVICE_TYPE_LABELS[asset.type] ??
                       asset.type}
                   </Td>
@@ -235,9 +229,9 @@ export function Assets() {
                   <Td>
                     <Badge
                       variant={asset.status === "active" ? "ok" : "warn"}
-                      title={STATUS_HINTS[asset.status]}
+                      title={ASSET_STATUS_HINTS[asset.status]}
                     >
-                      {STATUS_LABELS[asset.status]}
+                      {ASSET_STATUS_LABELS[asset.status]}
                     </Badge>
                   </Td>
                   <Td className="whitespace-nowrap">{formatDateTime(asset.last_seen)}</Td>

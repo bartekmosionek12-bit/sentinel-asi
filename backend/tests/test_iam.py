@@ -33,14 +33,24 @@ from app.iam.deps import (
 )
 from app.iam.jwks import JwksKeyProvider
 from app.iam.rbac import RbacConfigError, RoleCatalog
-from app.iam.redaction import REDACTED_ADDRESS, REDACTED_PERSON, redact
+from app.iam.redaction import REDACTED_ADDRESS, redact
 from app.iam.sync import sync_catalog
 from app.iam.tokens import StaticKeyProvider, TokenError, TokenVerifier, principal_from_claims
 from app.main import create_app
-from app.models import Asset, AuditLog, Notification, Permission, Role, RolePermission, User
+from app.models import (
+    Asset,
+    AuditLog,
+    CustomRole,
+    Notification,
+    Permission,
+    Role,
+    RolePermission,
+    User,
+)
 from tests.conftest import (
     ADMIN_CLIENT,
     DASHBOARD_CLIENT,
+    HUMAN_ROLES,
     TEST_AUDIENCE,
     TEST_ISSUER,
     TEST_POLICY,
@@ -103,12 +113,14 @@ def test_unknown_permission_fails_at_import() -> None:
 # --- macierz rola × endpoint ----------------------------------------------------------
 
 # Rodzaje wywołujących: role z tokenu i klient, który go wystawił. MFA wynika z `amr`
-# (admin w konsoli operacyjnej loguje się hasłem i TOTP, patrz infra/keycloak).
+# (ludzie w konsoli zespołu IT logują się hasłem i TOTP, patrz infra/keycloak).
 CALLERS: dict[str, tuple[list[str], str]] = {
-    "admin_mfa": (["admin"], ADMIN_CLIENT),
-    "admin_bez_mfa": (["admin"], DASHBOARD_CLIENT),
-    "manager": (["manager"], DASHBOARD_CLIENT),
-    "auditor": (["auditor"], DASHBOARD_CLIENT),
+    "admin_mfa": (["administrator"], ADMIN_CLIENT),
+    "admin_bez_mfa": (["administrator"], DASHBOARD_CLIENT),
+    "editor": (["editor"], ADMIN_CLIENT),
+    "modifier": (["modifier"], ADMIN_CLIENT),
+    "viewer": (["viewer"], ADMIN_CLIENT),
+    "viewer_bez_mfa": (["viewer"], DASHBOARD_CLIENT),
     "agent": (["agent"], "sentinel-agent"),
     "system": (["system"], "sentinel-pipeline"),
     "bez_roli": ([], DASHBOARD_CLIENT),
@@ -149,7 +161,7 @@ GUARDED = _guarded_routes()
 @pytest.mark.parametrize("caller", list(CALLERS))
 def test_role_endpoint_matrix(anon_client: TestClient, tokens: TokenFactory, caller: str) -> None:
     roles, client_id = CALLERS[caller]
-    mfa = caller == "admin_mfa"
+    mfa = client_id == ADMIN_CLIENT and bool(HUMAN_ROLES & set(roles))
     granted = CATALOG.resolve(frozenset(roles), mfa=mfa)
     headers = tokens.headers(roles, client=client_id, username=f"u-{caller}")
     wrong: list[str] = []
@@ -175,18 +187,35 @@ def test_public_health_needs_no_token(anon_client: TestClient) -> None:
 
 
 def test_matrix_covers_key_expectations() -> None:
-    """Jawne oczekiwania z ARCHITECTURE.md §4, niezależne od wyliczania z roles.yaml."""
-    manager = CATALOG.resolve(frozenset({"manager"}), mfa=False)
-    auditor = CATALOG.resolve(frozenset({"auditor"}), mfa=False)
-    admin = CATALOG.resolve(frozenset({"admin"}), mfa=True)
-    assert {"inventory:read", "findings:read", "reports:read"} <= manager
-    assert not manager & {"scan:run", "scope:manage", "audit:read", "secrets:redacted:view"}
-    assert "audit:read" in auditor
-    assert "personal_data:view" not in auditor
-    assert "secrets:redacted:view" not in auditor
+    """Jawne oczekiwania z briefu (pkt 13) i docs/ROLES.md, niezależne od roles.yaml."""
+    admin = CATALOG.resolve(frozenset({"administrator"}), mfa=True)
+    editor = CATALOG.resolve(frozenset({"editor"}), mfa=True)
+    modifier = CATALOG.resolve(frozenset({"modifier"}), mfa=True)
+    viewer = CATALOG.resolve(frozenset({"viewer"}), mfa=True)
     assert set(CATALOG.permissions) == admin
-    # Menedżer i audytor tylko czytają: żadne ich uprawnienie nie jest operacją z MFA.
-    assert not (manager | auditor) & {p for p in CATALOG.permissions if CATALOG.requires_mfa(p)}
+    # Odczyt: tylko czyta i eksportuje, nic nie zmienia.
+    writes = {p for p in CATALOG.permissions if CATALOG.requires_mfa(p)} - {"console:admin"}
+    assert not viewer & writes
+    assert {"inventory:read", "findings:read", "reports:export"} <= viewer
+    # Modyfikacja: zmienia istniejące dane, ale nie dodaje i niczego nie uruchamia.
+    assert {"findings:update", "review:decide"} <= modifier
+    assert not modifier & {"inventory:write", "scan:run", "agent:task", "reports:generate"}
+    # Editor: dodaje, uruchamia skany i zatwierdza L2/L3 oraz plany agenta (decyzja 21.11).
+    assert {"inventory:write", "scan:run", "scan:approve:l2", "scan:approve:l3"} <= editor
+    assert "agent:task" in editor
+    # Tylko administrator: tożsamość, zakres, zdolności agenta, integracje, audyt.
+    admin_only = {
+        "iam:manage",
+        "scope:manage",
+        "agent:configure",
+        "agent_test:override",
+        "integrations:manage",
+        "llm:external:manage",
+        "audit:read",
+        "audit:export",
+    }
+    assert not (editor | modifier | viewer) & admin_only
+    assert viewer < modifier < editor < admin
     # Agent i system nie mają dziś uprawnień do API (agent dostaje zdolności w Etapie 5).
     assert CATALOG.resolve(frozenset({"agent"}), mfa=False) == frozenset()
     assert CATALOG.resolve(frozenset({"system"}), mfa=False) == frozenset()
@@ -200,12 +229,12 @@ def _status(client: TestClient, token: str) -> int:
 
 
 def test_valid_token_returns_profile(anon_client: TestClient, tokens: TokenFactory) -> None:
-    me = anon_client.get("/api/me", headers=tokens.headers(["manager"], username="marta")).json()
+    me = anon_client.get("/api/me", headers=tokens.headers(["viewer"], username="marta")).json()
     assert (me["username"], me["kind"], me["roles"], me["mfa"]) == (
         "marta",
         "human",
-        ["manager"],
-        False,
+        ["viewer"],
+        True,
     )
     assert "findings:read" in me["permissions"]
     assert "scan:run" not in me["permissions"]
@@ -224,7 +253,7 @@ def test_valid_token_returns_profile(anon_client: TestClient, tokens: TokenFacto
 def test_invalid_claims_are_rejected(
     anon_client: TestClient, tokens: TokenFactory, change: dict[str, Any]
 ) -> None:
-    claims = tokens.claims(["admin"])
+    claims = tokens.claims(["administrator"])
     claims.update(change)
     claims = {k: v for k, v in claims.items() if v is not None}
     assert _status(anon_client, tokens.encode(claims)) == 401
@@ -234,13 +263,13 @@ def test_token_signed_with_other_key_is_rejected(
     anon_client: TestClient, tokens: TokenFactory
 ) -> None:
     other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    assert _status(anon_client, tokens.encode(tokens.claims(["admin"]), key=other)) == 401
+    assert _status(anon_client, tokens.encode(tokens.claims(["administrator"]), key=other)) == 401
 
 
 def test_symmetric_and_unsigned_tokens_are_rejected(
     anon_client: TestClient, tokens: TokenFactory, signing_key: rsa.RSAPrivateKey
 ) -> None:
-    claims = tokens.claims(["admin"])
+    claims = tokens.claims(["administrator"])
     unsigned = jwt.encode(claims, key=None, algorithm="none")  # type: ignore[arg-type]
     assert _status(anon_client, unsigned) == 401
     # Klasyczny atak: HS256 podpisany kluczem publicznym (znanym z JWKS) jako sekretem.
@@ -267,7 +296,7 @@ def test_missing_or_malformed_header(anon_client: TestClient) -> None:
 def test_admin_without_mfa_keeps_read_but_loses_operations(
     anon_client: TestClient, tokens: TokenFactory
 ) -> None:
-    headers = tokens.headers(["admin"], client=DASHBOARD_CLIENT, username="ala")
+    headers = tokens.headers(["administrator"], client=DASHBOARD_CLIENT, username="ala")
     assert anon_client.get("/api/findings", headers=headers).status_code == 200
     denied = anon_client.post("/api/scans", headers=headers)
     assert denied.status_code == 403
@@ -275,12 +304,12 @@ def test_admin_without_mfa_keeps_read_but_loses_operations(
 
 
 def test_mfa_comes_from_amr_not_from_client(anon_client: TestClient, tokens: TokenFactory) -> None:
-    """Sam klient konsoli operacyjnej nie oznacza MFA: menedżer loguje się tam bez TOTP."""
-    with_otp = tokens.headers(["admin"], client=DASHBOARD_CLIENT, amr=["pwd", "otp"])
+    """O MFA decyduje `amr` w tokenie, a nie klient OIDC, przez który się zalogowano."""
+    with_otp = tokens.headers(["administrator"], client=DASHBOARD_CLIENT, amr=["pwd", "otp"])
     assert anon_client.post("/api/scans", headers=with_otp).status_code == 202
-    password_only = tokens.headers(["admin"], client=ADMIN_CLIENT, amr=["pwd"])
+    password_only = tokens.headers(["administrator"], client=ADMIN_CLIENT, amr=["pwd"])
     assert anon_client.post("/api/scans", headers=password_only).status_code == 403
-    no_amr = tokens.headers(["admin"], client=ADMIN_CLIENT, amr=[])
+    no_amr = tokens.headers(["administrator"], client=ADMIN_CLIENT, amr=[])
     assert anon_client.post("/api/scans", headers=no_amr).status_code == 403
 
 
@@ -289,7 +318,7 @@ def test_service_accounts_never_count_as_mfa() -> None:
         "sub": "svc",
         "azp": ADMIN_CLIENT,
         "amr": ["otp"],
-        "realm_access": {"roles": ["agent", "admin"]},
+        "realm_access": {"roles": ["agent", "administrator"]},
     }
     principal = principal_from_claims(claims, TEST_POLICY, CATALOG)
     assert principal.kind == "agent"
@@ -305,11 +334,11 @@ def _audit(factory: sessionmaker[Session], action: str) -> list[AuditLog]:
         return list(db.scalars(select(AuditLog).where(AuditLog.action == action)))
 
 
-def test_manager_denied_on_admin_operation_is_audited(
+def test_viewer_denied_on_scan_is_audited(
     anon_client: TestClient, tokens: TokenFactory, session_factory: sessionmaker[Session]
 ) -> None:
-    """Scenariusz demo 5: menedżer próbuje operacji z konsoli admina."""
-    headers = tokens.headers(["manager"], username="marta")
+    """Rola „Odczyt” próbuje uruchomić skan: 403 i wpis w audycie."""
+    headers = tokens.headers(["viewer"], username="marta")
     response = anon_client.post("/api/scans", headers={**headers, "X-Request-ID": "req-demo-0005"})
     assert response.status_code == 403
     assert response.headers["x-request-id"] == "req-demo-0005"
@@ -321,26 +350,29 @@ def test_manager_denied_on_admin_operation_is_audited(
         "req-demo-0005",
     )
     assert entry.inputs["permission"] == "scan:run"
-    assert entry.inputs["roles"] == ["manager"]
+    assert entry.inputs["roles"] == ["viewer"]
     assert entry.object_id == "POST /api/scans"
     with session_factory() as db:
         assert verify_chain(db).ok
 
 
-def test_manager_opening_admin_console_is_denied_and_audited(
+def test_console_needs_role_and_mfa_and_denials_are_audited(
     anon_client: TestClient, tokens: TokenFactory, session_factory: sessionmaker[Session]
 ) -> None:
-    """Scenariusz demo 5 tak, jak go wykonuje interfejs: wejście na /admin."""
-    manager = tokens.headers(["manager"], client=ADMIN_CLIENT, username="marta")
-    assert anon_client.get("/api/console/admin", headers=manager).status_code == 403
+    """Wejście na /admin: bez roli z briefu albo bez TOTP odmowa z wpisem w audycie."""
+    stranger = tokens.headers(["root"], client=ADMIN_CLIENT, username="marta")
+    assert anon_client.get("/api/console/admin", headers=stranger).status_code == 403
     (entry,) = _audit(session_factory, "access_denied")
     assert entry.inputs["permission"] == "console:admin"
-    assert "MFA" not in anon_client.get("/api/console/admin", headers=manager).json()["detail"]
-    admin_without_otp = tokens.headers(["admin"], amr=["pwd"])
+    assert "MFA" not in anon_client.get("/api/console/admin", headers=stranger).json()["detail"]
+    for role in sorted(HUMAN_ROLES):
+        ok = tokens.headers([role], username=f"u-{role}")
+        assert anon_client.get("/api/console/admin", headers=ok).status_code == 204, role
+    admin_without_otp = tokens.headers(["administrator"], amr=["pwd"])
     denied = anon_client.get("/api/console/admin", headers=admin_without_otp)
     assert denied.status_code == 403
     assert "MFA" in denied.json()["detail"]
-    admin = tokens.headers(["admin"])
+    admin = tokens.headers(["administrator"])
     assert anon_client.get("/api/console/admin", headers=admin).status_code == 204
 
 
@@ -381,12 +413,12 @@ def test_client_cannot_choose_the_actor(
 def test_users_are_provisioned_from_tokens(
     anon_client: TestClient, tokens: TokenFactory, session_factory: sessionmaker[Session]
 ) -> None:
-    anon_client.get("/api/me", headers=tokens.headers(["manager"], username="marta"))
-    anon_client.get("/api/me", headers=tokens.headers(["auditor", "manager"], username="marta"))
+    anon_client.get("/api/me", headers=tokens.headers(["viewer"], username="marta"))
+    anon_client.get("/api/me", headers=tokens.headers(["modifier", "viewer"], username="marta"))
     with session_factory() as db:
         (user,) = db.scalars(select(User)).all()
     assert (user.subject, user.username, user.kind) == ("sub-marta", "marta", "human")
-    assert user.roles == ["auditor", "manager"]
+    assert user.roles == ["modifier", "viewer"]
 
 
 # --- sesje i konto awaryjne -----------------------------------------------------------
@@ -398,7 +430,7 @@ def test_logout_revokes_session_immediately(
     session_registry: MemorySessionRegistry,
     session_factory: sessionmaker[Session],
 ) -> None:
-    headers = tokens.headers(["manager"], sid="sesja-1")
+    headers = tokens.headers(["viewer"], sid="sesja-1")
     assert anon_client.get("/api/findings", headers=headers).status_code == 200
     assert anon_client.post("/api/auth/logout", headers=headers).status_code == 204
     assert "sesja-1" in session_registry.revoked
@@ -411,7 +443,7 @@ def test_logout_revokes_session_immediately(
 def test_breakglass_use_alerts_once_per_session(
     anon_client: TestClient, tokens: TokenFactory, session_factory: sessionmaker[Session]
 ) -> None:
-    headers = tokens.headers(["admin"], username="breakglass-admin", sid="awaria-1")
+    headers = tokens.headers(["administrator"], username="breakglass-admin", sid="awaria-1")
     for _ in range(3):
         assert anon_client.get("/api/me", headers=headers).status_code == 200
     (entry,) = _audit(session_factory, "breakglass_used")
@@ -420,7 +452,7 @@ def test_breakglass_use_alerts_once_per_session(
         (alert,) = db.scalars(select(Notification)).all()
     assert (alert.rule_name, alert.channel, alert.status) == ("breakglass_login", "in_app", "sent")
     assert "awaryjnym" in alert.payload["title"]
-    other = tokens.headers(["admin"], username="breakglass-admin", sid="awaria-2")
+    other = tokens.headers(["administrator"], username="breakglass-admin", sid="awaria-2")
     anon_client.get("/api/me", headers=other)
     assert len(_audit(session_factory, "breakglass_used")) == 2
 
@@ -450,24 +482,22 @@ def asset(session_factory: sessionmaker[Session]) -> Iterator[Asset]:
         yield item
 
 
-def test_manager_sees_no_addresses_or_technical_data(
-    anon_client: TestClient, tokens: TokenFactory, asset: Asset
+def test_role_without_technical_view_sees_no_addresses(
+    anon_client: TestClient,
+    tokens: TokenFactory,
+    asset: Asset,
+    session_factory: sessionmaker[Session],
 ) -> None:
-    headers = tokens.headers(["manager"])
+    """Rola własna bez `secrets:redacted:view` dostaje odpowiedzi bez adresów i banerów."""
+    with session_factory() as db:
+        db.add(CustomRole(name="tylko-lista", permissions=["inventory:read"], created_by="t"))
+        db.commit()
+    headers = tokens.headers(["tylko-lista"])
     body = anon_client.get(f"/api/assets/{asset.id}/details", headers=headers).json()
     assert body["attributes"] == {}
-    assert body["asset"]["owner"] == "Jan Kowalski"  # menedżer widzi właścicieli
-    full = anon_client.get(
-        f"/api/assets/{asset.id}/details", headers=tokens.headers(["admin"])
-    ).json()
-    assert full["attributes"]["ip"] == "10.10.0.5"
-
-
-def test_auditor_sees_no_personal_data(
-    anon_client: TestClient, tokens: TokenFactory, asset: Asset
-) -> None:
-    body = anon_client.get(f"/api/assets/{asset.id}", headers=tokens.headers(["auditor"])).json()
-    assert body["owner"] == REDACTED_PERSON
+    assert body["asset"]["owner"] == "Jan Kowalski"
+    viewer = anon_client.get(f"/api/assets/{asset.id}/details", headers=tokens.headers(["viewer"]))
+    assert viewer.json()["attributes"]["ip"] == "10.10.0.5"
 
 
 def test_redaction_masks_ips_inside_text() -> None:
@@ -553,11 +583,11 @@ def test_catalog_is_copied_to_database(session: Session) -> None:
     first = sync_catalog(session, CATALOG)
     second = sync_catalog(session, CATALOG)
     assert first == second
-    assert session.scalar(select(Role).where(Role.name == "manager")) is not None
+    assert session.scalar(select(Role).where(Role.name == "viewer")) is not None
     links = session.scalars(
-        select(RolePermission.permission_name).where(RolePermission.role_name == "manager")
+        select(RolePermission.permission_name).where(RolePermission.role_name == "viewer")
     ).all()
-    assert set(links) == set(CATALOG.roles["manager"].permissions)
+    assert set(links) == set(CATALOG.roles["viewer"].permissions)
     assert session.get(Permission, "scan:run").mfa is True  # type: ignore[union-attr]
 
 

@@ -5,7 +5,7 @@
 #   ./scripts/inject_kev.sh CVE-2022-24735
 #
 # Tylko DEMO_MODE=true. Wpis przechodzi tą samą ścieżką co prawdziwy feed KEV: dopasowanie,
-# ocena ryzyka, powiadomienia i raport „zero-day” w skrzynce menedżera, bez modelu językowego.
+# ocena ryzyka, powiadomienia i raport „zero-day” w skrzynce raportów, bez modelu językowego.
 # W dzienniku audytu jest oznaczony jako syntetyczny.
 set -euo pipefail
 cd "$(dirname "$0")/.."
